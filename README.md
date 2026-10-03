@@ -32,7 +32,7 @@
 </p>
 
 > [!IMPORTANT]
-> **关于本仓库**：这是基于 [glanderness/BeefTV](https://github.com/glanderness/BeefTV)（MIT License）修改的**土豆协议适配版**——土豆（ai-tudou）协议适配与相关修复**已直接包含在源码中**，克隆本仓库即可直接使用，无需再做任何修补。
+> **关于本仓库**：这是基于 [glanderness/BeefTV](https://github.com/glanderness/BeefTV)（MIT License）修改的**土豆协议适配版**——土豆（api.ai-tudou.net）协议适配与相关修复**已直接包含在源码中**，克隆本仓库即可直接使用，无需再做任何修补。
 >
 > - **源码已包含全部适配**：土豆图片协议修复（异步 `images` 字段 / 同步 JSON）、参考图出站归一化（6MiB 预算内直传、超限重编码）、@ 引用与连线参考图合并、画布节点下载修复、官方插件构建产物补齐、「土豆API」渠道预置与一键启动脚本；
 > - **`patch/BeefTV土豆协议补丁.zip`**：仅供已拉取**原版** BeefTV 的用户做增量适配（解压到项目根目录后一键应用）。本仓库的源码已包含同样的改动，**不要重复执行**；
