@@ -1,0 +1,2663 @@
+{
+  "apiVersion": "beeftv.plugin/v2",
+  "id": "tudou-video",
+  "name": "Tudou Video",
+  "version": "1.0.0",
+  "author": "BeefTV Contributors",
+  "description": "土豆（ai-tudou）视频协议插件：统一 /v1/videos/generations 提交与 /v1/tasks 轮询，按模型家族拆分请求形状。",
+  "permissions": [
+    "generation.run",
+    "media.read"
+  ],
+  "configuration": {
+    "fields": [
+      {
+        "name": "apiKey",
+        "type": "secret",
+        "label": "API Key",
+        "required": true
+      }
+    ]
+  },
+  "contributes": {
+    "providers": [
+      {
+        "capabilities": [
+          "video"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "requiresPublicMediaUrls": false,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "id": "tudou-video-sora2",
+        "label": "Tudou Video Sora2",
+        "parameters": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "mapping": "model",
+            "description": "视频模型 ID，由渠道模型列表配置，协议层不写死对照表。"
+          },
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "mapping": "prompt",
+            "description": "视频提示词。"
+          },
+          {
+            "name": "images",
+            "type": "media[]",
+            "required": false,
+            "mapping": "images",
+            "description": "参考图（图生视频/首尾帧），role=first_frame/last_frame 参与排序或单独字段，role=mask 不参与发送。"
+          },
+          {
+            "name": "duration",
+            "type": "integer",
+            "required": false,
+            "mapping": "duration",
+            "description": "时长（秒），合法档位由模型能力配置约束，缺省按网关规则。"
+          },
+          {
+            "name": "aspectRatio",
+            "type": "string",
+            "required": false,
+            "mapping": "aspect_ratio/size",
+            "description": "画面比例，如 16:9。"
+          },
+          {
+            "name": "generateAudio",
+            "type": "boolean",
+            "required": false,
+            "mapping": "generate_audio",
+            "description": "是否生成音频。"
+          },
+          {
+            "name": "providerOptions",
+            "type": "object",
+            "required": false,
+            "mapping": "provider-specific fields",
+            "description": "插件命名空间内的扩展字段（body/extra_body 整包合并）。"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/videos/generations",
+          "contentType": "application/json",
+          "body": {
+            "$merge": [
+              {
+                "model": {
+                  "$ref": "request.model"
+                },
+                "prompt": {
+                  "$ref": "request.prompt"
+                },
+                "duration": {
+                  "$omitEmpty": {
+                    "$ref": "request.duration"
+                  }
+                },
+                "aspect_ratio": {
+                  "$omitEmpty": {
+                    "$ref": "request.aspectRatio"
+                  }
+                },
+                "generate_audio": {
+                  "$ref": "request.generateAudio"
+                },
+                "images": {
+                  "$omitEmpty": {
+                    "$map": {
+                      "from": {
+                        "$filter": {
+                          "from": {
+                            "$ref": "request.images"
+                          },
+                          "as": "media",
+                          "where": {
+                            "$ne": [
+                              {
+                                "$ref": "media.role"
+                              },
+                              "mask"
+                            ]
+                          }
+                        }
+                      },
+                      "as": "media",
+                      "in": {
+                        "$ref": "media.value"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "$coalesce": [
+                  {
+                    "$ref": "request.providerOptions.tudou-video-sora2.body"
+                  },
+                  {
+                    "$ref": "request.providerOptions.tudou-video-sora2.extra_body"
+                  },
+                  {}
+                ]
+              }
+            ]
+          }
+        },
+        "poll": {
+          "method": "GET",
+          "path": "/v1/tasks/{{taskId}}"
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.id"
+              },
+              {
+                "$ref": "response.data.task_id"
+              },
+              {
+                "$ref": "response.id"
+              },
+              {
+                "$ref": "response.task_id"
+              },
+              {
+                "$ref": "taskId"
+              }
+            ]
+          },
+          "status": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.status"
+              },
+              {
+                "$ref": "response.data.task_status"
+              },
+              {
+                "$ref": "response.status"
+              },
+              {
+                "$ref": "response.task_status"
+              },
+              "pending"
+            ]
+          },
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.error.message"
+              },
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.data.message"
+              },
+              {
+                "$ref": "response.data.fail_reason"
+              },
+              {
+                "$ref": "response.message"
+              },
+              {
+                "$ref": "response.fail_reason"
+              }
+            ]
+          },
+          "videos": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.result.video_url"
+              },
+              {
+                "$ref": "response.data.result.url"
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.videos"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.outputs"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$ref": "response.data.metadata.url"
+              },
+              {
+                "$ref": "response.data.metadata.video_url"
+              }
+            ]
+          },
+          "errorPaths": [
+            "error.code",
+            "data.error.code"
+          ],
+          "messagePaths": [
+            "data.error.message",
+            "error.message",
+            "message",
+            "msg"
+          ],
+          "resultEphemeral": true
+        }
+      },
+      {
+        "capabilities": [
+          "video"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "requiresPublicMediaUrls": false,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "id": "tudou-video-veo3",
+        "label": "Tudou Video Veo3",
+        "parameters": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "mapping": "model",
+            "description": "视频模型 ID，由渠道模型列表配置，协议层不写死对照表。"
+          },
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "mapping": "prompt",
+            "description": "视频提示词。"
+          },
+          {
+            "name": "images",
+            "type": "media[]",
+            "required": false,
+            "mapping": "images",
+            "description": "参考图（图生视频/首尾帧），role=first_frame/last_frame 参与排序或单独字段，role=mask 不参与发送。"
+          },
+          {
+            "name": "duration",
+            "type": "integer",
+            "required": false,
+            "mapping": "duration",
+            "description": "时长（秒），合法档位由模型能力配置约束，缺省按网关规则。"
+          },
+          {
+            "name": "aspectRatio",
+            "type": "string",
+            "required": false,
+            "mapping": "aspect_ratio/size",
+            "description": "画面比例，如 16:9。"
+          },
+          {
+            "name": "resolution",
+            "type": "string",
+            "required": false,
+            "mapping": "resolution",
+            "description": "分辨率档位，缺省 720p。"
+          },
+          {
+            "name": "generateAudio",
+            "type": "boolean",
+            "required": false,
+            "mapping": "generate_audio",
+            "description": "是否生成音频。"
+          },
+          {
+            "name": "providerOptions",
+            "type": "object",
+            "required": false,
+            "mapping": "provider-specific fields",
+            "description": "插件命名空间内的扩展字段（body/extra_body 整包合并）。"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/videos/generations",
+          "contentType": "application/json",
+          "body": {
+            "$merge": [
+              {
+                "model": {
+                  "$ref": "request.model"
+                },
+                "prompt": {
+                  "$ref": "request.prompt"
+                },
+                "resolution": {
+                  "$omitEmpty": {
+                    "$switch": {
+                      "cases": [
+                        {
+                          "when": {
+                            "$in": [
+                              {
+                                "$lower": {
+                                  "$trim": {
+                                    "$ref": "request.resolution"
+                                  }
+                                }
+                              },
+                              [
+                                "",
+                                "auto"
+                              ]
+                            ]
+                          },
+                          "then": "720p"
+                        }
+                      ],
+                      "default": {
+                        "$lower": {
+                          "$trim": {
+                            "$ref": "request.resolution"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "duration": {
+                  "$omitEmpty": {
+                    "$ref": "request.duration"
+                  }
+                },
+                "aspect_ratio": {
+                  "$omitEmpty": {
+                    "$ref": "request.aspectRatio"
+                  }
+                },
+                "generate_audio": {
+                  "$ref": "request.generateAudio"
+                },
+                "images": {
+                  "$omitEmpty": {
+                    "$map": {
+                      "from": {
+                        "$filter": {
+                          "from": {
+                            "$ref": "request.images"
+                          },
+                          "as": "media",
+                          "where": {
+                            "$ne": [
+                              {
+                                "$ref": "media.role"
+                              },
+                              "mask"
+                            ]
+                          }
+                        }
+                      },
+                      "as": "media",
+                      "in": {
+                        "$ref": "media.value"
+                      }
+                    }
+                  }
+                },
+                "reference_mode": {
+                  "$omitEmpty": {
+                    "$if": {
+                      "condition": {
+                        "$gt": [
+                          {
+                            "$len": {
+                              "$ref": "request.images"
+                            }
+                          },
+                          0
+                        ]
+                      },
+                      "then": {
+                        "$if": {
+                          "condition": {
+                            "$gt": [
+                              {
+                                "$len": {
+                                  "$ref": "request.images"
+                                }
+                              },
+                              2
+                            ]
+                          },
+                          "then": "image",
+                          "else": "frame"
+                        }
+                      },
+                      "else": null
+                    }
+                  }
+                }
+              },
+              {
+                "$coalesce": [
+                  {
+                    "$ref": "request.providerOptions.tudou-video-veo3.body"
+                  },
+                  {
+                    "$ref": "request.providerOptions.tudou-video-veo3.extra_body"
+                  },
+                  {}
+                ]
+              }
+            ]
+          }
+        },
+        "poll": {
+          "method": "GET",
+          "path": "/v1/tasks/{{taskId}}"
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.id"
+              },
+              {
+                "$ref": "response.data.task_id"
+              },
+              {
+                "$ref": "response.id"
+              },
+              {
+                "$ref": "response.task_id"
+              },
+              {
+                "$ref": "taskId"
+              }
+            ]
+          },
+          "status": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.status"
+              },
+              {
+                "$ref": "response.data.task_status"
+              },
+              {
+                "$ref": "response.status"
+              },
+              {
+                "$ref": "response.task_status"
+              },
+              "pending"
+            ]
+          },
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.error.message"
+              },
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.data.message"
+              },
+              {
+                "$ref": "response.data.fail_reason"
+              },
+              {
+                "$ref": "response.message"
+              },
+              {
+                "$ref": "response.fail_reason"
+              }
+            ]
+          },
+          "videos": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.result.video_url"
+              },
+              {
+                "$ref": "response.data.result.url"
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.videos"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.outputs"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$ref": "response.data.metadata.url"
+              },
+              {
+                "$ref": "response.data.metadata.video_url"
+              }
+            ]
+          },
+          "errorPaths": [
+            "error.code",
+            "data.error.code"
+          ],
+          "messagePaths": [
+            "data.error.message",
+            "error.message",
+            "message",
+            "msg"
+          ],
+          "resultEphemeral": true
+        }
+      },
+      {
+        "capabilities": [
+          "video"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "requiresPublicMediaUrls": false,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "id": "tudou-video-kling",
+        "label": "Tudou Video Kling",
+        "parameters": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "mapping": "model",
+            "description": "视频模型 ID，由渠道模型列表配置，协议层不写死对照表。"
+          },
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "mapping": "prompt",
+            "description": "视频提示词。"
+          },
+          {
+            "name": "images",
+            "type": "media[]",
+            "required": false,
+            "mapping": "images",
+            "description": "参考图（图生视频/首尾帧），role=first_frame/last_frame 参与排序或单独字段，role=mask 不参与发送。"
+          },
+          {
+            "name": "duration",
+            "type": "integer",
+            "required": false,
+            "mapping": "duration",
+            "description": "时长（秒），合法档位由模型能力配置约束，缺省按网关规则。"
+          },
+          {
+            "name": "aspectRatio",
+            "type": "string",
+            "required": false,
+            "mapping": "aspect_ratio/size",
+            "description": "画面比例，如 16:9。"
+          },
+          {
+            "name": "generateAudio",
+            "type": "boolean",
+            "required": false,
+            "mapping": "generate_audio",
+            "description": "是否生成音频。"
+          },
+          {
+            "name": "providerOptions",
+            "type": "object",
+            "required": false,
+            "mapping": "provider-specific fields",
+            "description": "插件命名空间内的扩展字段（body/extra_body 整包合并）。"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/videos/generations",
+          "contentType": "application/json",
+          "body": {
+            "$merge": [
+              {
+                "model": {
+                  "$ref": "request.model"
+                },
+                "prompt": {
+                  "$ref": "request.prompt"
+                },
+                "duration": {
+                  "$omitEmpty": {
+                    "$ref": "request.duration"
+                  }
+                },
+                "aspect_ratio": {
+                  "$omitEmpty": {
+                    "$ref": "request.aspectRatio"
+                  }
+                },
+                "generate_audio": {
+                  "$ref": "request.generateAudio"
+                },
+                "images": {
+                  "$omitEmpty": {
+                    "$map": {
+                      "from": {
+                        "$filter": {
+                          "from": {
+                            "$ref": "request.images"
+                          },
+                          "as": "media",
+                          "where": {
+                            "$ne": [
+                              {
+                                "$ref": "media.role"
+                              },
+                              "mask"
+                            ]
+                          }
+                        }
+                      },
+                      "as": "media",
+                      "in": {
+                        "$ref": "media.value"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "$coalesce": [
+                  {
+                    "$ref": "request.providerOptions.tudou-video-kling.body"
+                  },
+                  {
+                    "$ref": "request.providerOptions.tudou-video-kling.extra_body"
+                  },
+                  {}
+                ]
+              }
+            ]
+          }
+        },
+        "poll": {
+          "method": "GET",
+          "path": "/v1/tasks/{{taskId}}"
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.id"
+              },
+              {
+                "$ref": "response.data.task_id"
+              },
+              {
+                "$ref": "response.id"
+              },
+              {
+                "$ref": "response.task_id"
+              },
+              {
+                "$ref": "taskId"
+              }
+            ]
+          },
+          "status": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.status"
+              },
+              {
+                "$ref": "response.data.task_status"
+              },
+              {
+                "$ref": "response.status"
+              },
+              {
+                "$ref": "response.task_status"
+              },
+              "pending"
+            ]
+          },
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.error.message"
+              },
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.data.message"
+              },
+              {
+                "$ref": "response.data.fail_reason"
+              },
+              {
+                "$ref": "response.message"
+              },
+              {
+                "$ref": "response.fail_reason"
+              }
+            ]
+          },
+          "videos": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.result.video_url"
+              },
+              {
+                "$ref": "response.data.result.url"
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.videos"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.outputs"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$ref": "response.data.metadata.url"
+              },
+              {
+                "$ref": "response.data.metadata.video_url"
+              }
+            ]
+          },
+          "errorPaths": [
+            "error.code",
+            "data.error.code"
+          ],
+          "messagePaths": [
+            "data.error.message",
+            "error.message",
+            "message",
+            "msg"
+          ],
+          "resultEphemeral": true
+        }
+      },
+      {
+        "capabilities": [
+          "video"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "requiresPublicMediaUrls": false,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "id": "tudou-video-pixverse",
+        "label": "Tudou Video PixVerse",
+        "parameters": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "mapping": "model",
+            "description": "视频模型 ID，由渠道模型列表配置，协议层不写死对照表。"
+          },
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "mapping": "prompt",
+            "description": "视频提示词。"
+          },
+          {
+            "name": "images",
+            "type": "media[]",
+            "required": false,
+            "mapping": "images",
+            "description": "参考图（图生视频/首尾帧），role=first_frame/last_frame 参与排序或单独字段，role=mask 不参与发送。"
+          },
+          {
+            "name": "duration",
+            "type": "integer",
+            "required": false,
+            "mapping": "duration",
+            "description": "时长（秒），合法档位由模型能力配置约束，缺省按网关规则。"
+          },
+          {
+            "name": "aspectRatio",
+            "type": "string",
+            "required": false,
+            "mapping": "aspect_ratio/size",
+            "description": "画面比例，如 16:9。"
+          },
+          {
+            "name": "resolution",
+            "type": "string",
+            "required": false,
+            "mapping": "resolution",
+            "description": "分辨率档位，缺省 720p。"
+          },
+          {
+            "name": "providerOptions",
+            "type": "object",
+            "required": false,
+            "mapping": "provider-specific fields",
+            "description": "插件命名空间内的扩展字段（body/extra_body 整包合并）。"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/videos/generations",
+          "contentType": "application/json",
+          "body": {
+            "$merge": [
+              {
+                "model": {
+                  "$ref": "request.model"
+                },
+                "prompt": {
+                  "$ref": "request.prompt"
+                },
+                "resolution": {
+                  "$omitEmpty": {
+                    "$switch": {
+                      "cases": [
+                        {
+                          "when": {
+                            "$in": [
+                              {
+                                "$lower": {
+                                  "$trim": {
+                                    "$ref": "request.resolution"
+                                  }
+                                }
+                              },
+                              [
+                                "",
+                                "auto"
+                              ]
+                            ]
+                          },
+                          "then": "720p"
+                        }
+                      ],
+                      "default": {
+                        "$lower": {
+                          "$trim": {
+                            "$ref": "request.resolution"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "size": {
+                  "$omitEmpty": {
+                    "$ref": "request.aspectRatio"
+                  }
+                },
+                "duration": {
+                  "$omitEmpty": {
+                    "$ref": "request.duration"
+                  }
+                },
+                "first_frame_image": {
+                  "$omitEmpty": {
+                    "$first": {
+                      "$map": {
+                        "from": {
+                          "$filter": {
+                            "from": {
+                              "$ref": "request.images"
+                            },
+                            "as": "media",
+                            "where": {
+                              "$eq": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$ref": "media.role"
+                                    }
+                                  }
+                                },
+                                "first_frame"
+                              ]
+                            }
+                          }
+                        },
+                        "as": "media",
+                        "in": {
+                          "$ref": "media.value"
+                        }
+                      }
+                    }
+                  }
+                },
+                "last_frame_image": {
+                  "$omitEmpty": {
+                    "$first": {
+                      "$map": {
+                        "from": {
+                          "$filter": {
+                            "from": {
+                              "$ref": "request.images"
+                            },
+                            "as": "media",
+                            "where": {
+                              "$eq": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$ref": "media.role"
+                                    }
+                                  }
+                                },
+                                "last_frame"
+                              ]
+                            }
+                          }
+                        },
+                        "as": "media",
+                        "in": {
+                          "$ref": "media.value"
+                        }
+                      }
+                    }
+                  }
+                },
+                "img_references": {
+                  "$omitEmpty": {
+                    "$map": {
+                      "from": {
+                        "$filter": {
+                          "from": {
+                            "$ref": "request.images"
+                          },
+                          "as": "media",
+                          "where": {
+                            "$and": [
+                              {
+                                "$ne": [
+                                  {
+                                    "$lower": {
+                                      "$trim": {
+                                        "$ref": "media.role"
+                                      }
+                                    }
+                                  },
+                                  "first_frame"
+                                ]
+                              },
+                              {
+                                "$ne": [
+                                  {
+                                    "$lower": {
+                                      "$trim": {
+                                        "$ref": "media.role"
+                                      }
+                                    }
+                                  },
+                                  "last_frame"
+                                ]
+                              },
+                              {
+                                "$ne": [
+                                  {
+                                    "$lower": {
+                                      "$trim": {
+                                        "$ref": "media.role"
+                                      }
+                                    }
+                                  },
+                                  "mask"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "as": "media",
+                      "in": {
+                        "$ref": "media.value"
+                      }
+                    }
+                  }
+                },
+                "audio": {
+                  "$ref": "request.generateAudio"
+                }
+              },
+              {
+                "$coalesce": [
+                  {
+                    "$ref": "request.providerOptions.tudou-video-pixverse.body"
+                  },
+                  {
+                    "$ref": "request.providerOptions.tudou-video-pixverse.extra_body"
+                  },
+                  {}
+                ]
+              }
+            ]
+          }
+        },
+        "poll": {
+          "method": "GET",
+          "path": "/v1/tasks/{{taskId}}"
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.id"
+              },
+              {
+                "$ref": "response.data.task_id"
+              },
+              {
+                "$ref": "response.id"
+              },
+              {
+                "$ref": "response.task_id"
+              },
+              {
+                "$ref": "taskId"
+              }
+            ]
+          },
+          "status": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.status"
+              },
+              {
+                "$ref": "response.data.task_status"
+              },
+              {
+                "$ref": "response.status"
+              },
+              {
+                "$ref": "response.task_status"
+              },
+              "pending"
+            ]
+          },
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.error.message"
+              },
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.data.message"
+              },
+              {
+                "$ref": "response.data.fail_reason"
+              },
+              {
+                "$ref": "response.message"
+              },
+              {
+                "$ref": "response.fail_reason"
+              }
+            ]
+          },
+          "videos": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.result.video_url"
+              },
+              {
+                "$ref": "response.data.result.url"
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.videos"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.outputs"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$ref": "response.data.metadata.url"
+              },
+              {
+                "$ref": "response.data.metadata.video_url"
+              }
+            ]
+          },
+          "errorPaths": [
+            "error.code",
+            "data.error.code"
+          ],
+          "messagePaths": [
+            "data.error.message",
+            "error.message",
+            "message",
+            "msg"
+          ],
+          "resultEphemeral": true
+        }
+      },
+      {
+        "capabilities": [
+          "video"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "requiresPublicMediaUrls": false,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "id": "tudou-video-seedance",
+        "label": "Tudou Video Seedance",
+        "parameters": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "mapping": "model",
+            "description": "视频模型 ID，由渠道模型列表配置，协议层不写死对照表。"
+          },
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "mapping": "prompt",
+            "description": "视频提示词。"
+          },
+          {
+            "name": "images",
+            "type": "media[]",
+            "required": false,
+            "mapping": "images",
+            "description": "参考图（图生视频/首尾帧），role=first_frame/last_frame 参与排序或单独字段，role=mask 不参与发送。"
+          },
+          {
+            "name": "videos",
+            "type": "media[]",
+            "required": false,
+            "mapping": "videos",
+            "description": "参考视频，公网 URL 或 data URL。"
+          },
+          {
+            "name": "audios",
+            "type": "media[]",
+            "required": false,
+            "mapping": "audios",
+            "description": "参考音频，仅在已有图像或视频参考时随请求发送。"
+          },
+          {
+            "name": "duration",
+            "type": "integer",
+            "required": false,
+            "mapping": "duration",
+            "description": "时长（秒），合法档位由模型能力配置约束，缺省按网关规则。"
+          },
+          {
+            "name": "aspectRatio",
+            "type": "string",
+            "required": false,
+            "mapping": "aspect_ratio/size",
+            "description": "画面比例，如 16:9。"
+          },
+          {
+            "name": "resolution",
+            "type": "string",
+            "required": false,
+            "mapping": "resolution",
+            "description": "分辨率档位，缺省 720p。"
+          },
+          {
+            "name": "generateAudio",
+            "type": "boolean",
+            "required": false,
+            "mapping": "generate_audio",
+            "description": "是否生成音频。"
+          },
+          {
+            "name": "providerOptions",
+            "type": "object",
+            "required": false,
+            "mapping": "provider-specific fields",
+            "description": "插件命名空间内的扩展字段（body/extra_body 整包合并）。"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/videos/generations",
+          "contentType": "application/json",
+          "body": {
+            "$merge": [
+              {
+                "model": {
+                  "$ref": "request.model"
+                },
+                "prompt": {
+                  "$ref": "request.prompt"
+                },
+                "duration": {
+                  "$omitEmpty": {
+                    "$ref": "request.duration"
+                  }
+                },
+                "aspect_ratio": {
+                  "$omitEmpty": {
+                    "$ref": "request.aspectRatio"
+                  }
+                },
+                "resolution": {
+                  "$omitEmpty": {
+                    "$switch": {
+                      "cases": [
+                        {
+                          "when": {
+                            "$in": [
+                              {
+                                "$lower": {
+                                  "$trim": {
+                                    "$ref": "request.resolution"
+                                  }
+                                }
+                              },
+                              [
+                                "",
+                                "auto"
+                              ]
+                            ]
+                          },
+                          "then": "720p"
+                        }
+                      ],
+                      "default": {
+                        "$lower": {
+                          "$trim": {
+                            "$ref": "request.resolution"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "generate_audio": {
+                  "$omitEmpty": {
+                    "$if": {
+                      "condition": {
+                        "$ref": "request.generateAudio"
+                      },
+                      "then": true,
+                      "else": null
+                    }
+                  }
+                },
+                "images": {
+                  "$omitEmpty": {
+                    "$map": {
+                      "from": {
+                        "$concatArrays": [
+                          {
+                            "$filter": {
+                              "from": {
+                                "$ref": "request.images"
+                              },
+                              "as": "media",
+                              "where": {
+                                "$eq": [
+                                  {
+                                    "$lower": {
+                                      "$trim": {
+                                        "$ref": "media.role"
+                                      }
+                                    }
+                                  },
+                                  "first_frame"
+                                ]
+                              }
+                            }
+                          },
+                          {
+                            "$filter": {
+                              "from": {
+                                "$ref": "request.images"
+                              },
+                              "as": "media",
+                              "where": {
+                                "$and": [
+                                  {
+                                    "$ne": [
+                                      {
+                                        "$lower": {
+                                          "$trim": {
+                                            "$ref": "media.role"
+                                          }
+                                        }
+                                      },
+                                      "first_frame"
+                                    ]
+                                  },
+                                  {
+                                    "$ne": [
+                                      {
+                                        "$lower": {
+                                          "$trim": {
+                                            "$ref": "media.role"
+                                          }
+                                        }
+                                      },
+                                      "last_frame"
+                                    ]
+                                  },
+                                  {
+                                    "$ne": [
+                                      {
+                                        "$lower": {
+                                          "$trim": {
+                                            "$ref": "media.role"
+                                          }
+                                        }
+                                      },
+                                      "mask"
+                                    ]
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          {
+                            "$filter": {
+                              "from": {
+                                "$ref": "request.images"
+                              },
+                              "as": "media",
+                              "where": {
+                                "$eq": [
+                                  {
+                                    "$lower": {
+                                      "$trim": {
+                                        "$ref": "media.role"
+                                      }
+                                    }
+                                  },
+                                  "last_frame"
+                                ]
+                              }
+                            }
+                          }
+                        ]
+                      },
+                      "as": "media",
+                      "in": {
+                        "$ref": "media.value"
+                      }
+                    }
+                  }
+                },
+                "videos": {
+                  "$omitEmpty": {
+                    "$map": {
+                      "from": {
+                        "$ref": "request.videos"
+                      },
+                      "as": "media",
+                      "in": {
+                        "$ref": "media.value"
+                      }
+                    }
+                  }
+                },
+                "audios": {
+                  "$omitEmpty": {
+                    "$if": {
+                      "condition": {
+                        "$or": [
+                          {
+                            "$gt": [
+                              {
+                                "$len": {
+                                  "$ref": "request.images"
+                                }
+                              },
+                              0
+                            ]
+                          },
+                          {
+                            "$gt": [
+                              {
+                                "$len": {
+                                  "$ref": "request.videos"
+                                }
+                              },
+                              0
+                            ]
+                          }
+                        ]
+                      },
+                      "then": {
+                        "$map": {
+                          "from": {
+                            "$ref": "request.audios"
+                          },
+                          "as": "media",
+                          "in": {
+                            "$ref": "media.value"
+                          }
+                        }
+                      },
+                      "else": null
+                    }
+                  }
+                }
+              },
+              {
+                "$coalesce": [
+                  {
+                    "$ref": "request.providerOptions.tudou-video-seedance.body"
+                  },
+                  {
+                    "$ref": "request.providerOptions.tudou-video-seedance.extra_body"
+                  },
+                  {}
+                ]
+              }
+            ]
+          }
+        },
+        "poll": {
+          "method": "GET",
+          "path": "/v1/tasks/{{taskId}}"
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.id"
+              },
+              {
+                "$ref": "response.data.task_id"
+              },
+              {
+                "$ref": "response.id"
+              },
+              {
+                "$ref": "response.task_id"
+              },
+              {
+                "$ref": "taskId"
+              }
+            ]
+          },
+          "status": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.status"
+              },
+              {
+                "$ref": "response.data.task_status"
+              },
+              {
+                "$ref": "response.status"
+              },
+              {
+                "$ref": "response.task_status"
+              },
+              "pending"
+            ]
+          },
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.error.message"
+              },
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.data.message"
+              },
+              {
+                "$ref": "response.data.fail_reason"
+              },
+              {
+                "$ref": "response.message"
+              },
+              {
+                "$ref": "response.fail_reason"
+              }
+            ]
+          },
+          "videos": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.result.video_url"
+              },
+              {
+                "$ref": "response.data.result.url"
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.videos"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.outputs"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$ref": "response.data.metadata.url"
+              },
+              {
+                "$ref": "response.data.metadata.video_url"
+              }
+            ]
+          },
+          "errorPaths": [
+            "error.code",
+            "data.error.code"
+          ],
+          "messagePaths": [
+            "data.error.message",
+            "error.message",
+            "message",
+            "msg"
+          ],
+          "resultEphemeral": true
+        }
+      },
+      {
+        "capabilities": [
+          "video"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "requiresPublicMediaUrls": false,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "id": "tudou-video-grok",
+        "label": "Tudou Video Grok",
+        "parameters": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "mapping": "model",
+            "description": "视频模型 ID，由渠道模型列表配置，协议层不写死对照表。"
+          },
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "mapping": "prompt",
+            "description": "视频提示词。"
+          },
+          {
+            "name": "images",
+            "type": "media[]",
+            "required": false,
+            "mapping": "images",
+            "description": "参考图（图生视频/首尾帧），role=first_frame/last_frame 参与排序或单独字段，role=mask 不参与发送。"
+          },
+          {
+            "name": "duration",
+            "type": "integer",
+            "required": false,
+            "mapping": "duration",
+            "description": "时长（秒），合法档位由模型能力配置约束，缺省按网关规则。"
+          },
+          {
+            "name": "aspectRatio",
+            "type": "string",
+            "required": false,
+            "mapping": "aspect_ratio/size",
+            "description": "画面比例，如 16:9。"
+          },
+          {
+            "name": "providerOptions",
+            "type": "object",
+            "required": false,
+            "mapping": "provider-specific fields",
+            "description": "插件命名空间内的扩展字段（body/extra_body 整包合并）。"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/videos/generations",
+          "contentType": "application/json",
+          "body": {
+            "$merge": [
+              {
+                "model": {
+                  "$ref": "request.model"
+                },
+                "prompt": {
+                  "$ref": "request.prompt"
+                },
+                "duration": {
+                  "$omitEmpty": {
+                    "$ref": "request.duration"
+                  }
+                },
+                "aspect_ratio": {
+                  "$omitEmpty": {
+                    "$ref": "request.aspectRatio"
+                  }
+                },
+                "resolution": "720p",
+                "extra": {
+                  "aspect_ratio": {
+                    "$omitEmpty": {
+                      "$ref": "request.aspectRatio"
+                    }
+                  },
+                  "resolution": "720p",
+                  "reference_images": {
+                    "$omitEmpty": {
+                      "$map": {
+                        "from": {
+                          "$filter": {
+                            "from": {
+                              "$ref": "request.images"
+                            },
+                            "as": "media",
+                            "where": {
+                              "$ne": [
+                                {
+                                  "$ref": "media.role"
+                                },
+                                "mask"
+                              ]
+                            }
+                          }
+                        },
+                        "as": "media",
+                        "in": {
+                          "url": {
+                            "$ref": "media.value"
+                          },
+                          "role": {
+                            "$switch": {
+                              "cases": [
+                                {
+                                  "when": {
+                                    "$in": [
+                                      {
+                                        "$lower": {
+                                          "$trim": {
+                                            "$ref": "media.role"
+                                          }
+                                        }
+                                      },
+                                      [
+                                        "first_frame",
+                                        "last_frame"
+                                      ]
+                                    ]
+                                  },
+                                  "then": {
+                                    "$lower": {
+                                      "$trim": {
+                                        "$ref": "media.role"
+                                      }
+                                    }
+                                  }
+                                }
+                              ],
+                              "default": "reference_image"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "$coalesce": [
+                  {
+                    "$ref": "request.providerOptions.tudou-video-grok.body"
+                  },
+                  {
+                    "$ref": "request.providerOptions.tudou-video-grok.extra_body"
+                  },
+                  {}
+                ]
+              }
+            ]
+          }
+        },
+        "poll": {
+          "method": "GET",
+          "path": "/v1/tasks/{{taskId}}"
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.id"
+              },
+              {
+                "$ref": "response.data.task_id"
+              },
+              {
+                "$ref": "response.id"
+              },
+              {
+                "$ref": "response.task_id"
+              },
+              {
+                "$ref": "taskId"
+              }
+            ]
+          },
+          "status": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.status"
+              },
+              {
+                "$ref": "response.data.task_status"
+              },
+              {
+                "$ref": "response.status"
+              },
+              {
+                "$ref": "response.task_status"
+              },
+              "pending"
+            ]
+          },
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.error.message"
+              },
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.data.message"
+              },
+              {
+                "$ref": "response.data.fail_reason"
+              },
+              {
+                "$ref": "response.message"
+              },
+              {
+                "$ref": "response.fail_reason"
+              }
+            ]
+          },
+          "videos": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.result.video_url"
+              },
+              {
+                "$ref": "response.data.result.url"
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.videos"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.outputs"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$ref": "response.data.metadata.url"
+              },
+              {
+                "$ref": "response.data.metadata.video_url"
+              }
+            ]
+          },
+          "errorPaths": [
+            "error.code",
+            "data.error.code"
+          ],
+          "messagePaths": [
+            "data.error.message",
+            "error.message",
+            "message",
+            "msg"
+          ],
+          "resultEphemeral": true
+        }
+      },
+      {
+        "capabilities": [
+          "video"
+        ],
+        "scopes": [
+          "admin.system-channel",
+          "user.custom-channel",
+          "canvas",
+          "creation",
+          "agent"
+        ],
+        "requiresPublicMediaUrls": false,
+        "auth": {
+          "type": "bearer",
+          "field": "apiKey"
+        },
+        "id": "tudou-video-wan",
+        "label": "Tudou Video Wan",
+        "parameters": [
+          {
+            "name": "model",
+            "type": "string",
+            "required": true,
+            "mapping": "model",
+            "description": "wan3.0 / wan3.0-fast / wan3.0-video / wan3.0-video-fast。"
+          },
+          {
+            "name": "prompt",
+            "type": "string",
+            "required": true,
+            "mapping": "prompt",
+            "description": "视频描述，可用「图1」「视频1」指代素材顺序。"
+          },
+          {
+            "name": "images",
+            "type": "media[]",
+            "required": false,
+            "mapping": "images / first_frame_image / last_frame_image",
+            "description": "参考图（公网 URL），最多 10 张；role=first_frame/last_frame 进首尾帧字段，role=mask 不发送。"
+          },
+          {
+            "name": "videos",
+            "type": "media[]",
+            "required": false,
+            "mapping": "videos",
+            "description": "参考视频，仅 wan3.0-video / wan3.0-video-fast 支持。"
+          },
+          {
+            "name": "duration",
+            "type": "integer",
+            "required": true,
+            "mapping": "duration",
+            "description": "时长秒数，2–30（有参考视频 2–15），禁止 -1。"
+          },
+          {
+            "name": "aspectRatio",
+            "type": "string",
+            "required": true,
+            "mapping": "aspect_ratio",
+            "description": "只允许 auto / 16:9 / 9:16 / 1:1，无默认值。"
+          },
+          {
+            "name": "resolution",
+            "type": "string",
+            "required": false,
+            "mapping": "resolution",
+            "description": "仅 720p / 1080p，缺省 720p。"
+          },
+          {
+            "name": "providerOptions",
+            "type": "object",
+            "required": false,
+            "mapping": "provider-specific fields",
+            "description": "插件命名空间内的扩展字段（body/extra_body 整包合并）。"
+          }
+        ],
+        "create": {
+          "method": "POST",
+          "path": "/v1/videos/generations",
+          "contentType": "application/json",
+          "body": {
+            "$merge": [
+              {
+                "model": {
+                  "$ref": "request.model"
+                },
+                "prompt": {
+                  "$ref": "request.prompt"
+                },
+                "duration": {
+                  "$if": {
+                    "condition": {
+                      "$gt": [
+                        {
+                          "$ref": "request.duration"
+                        },
+                        0
+                      ]
+                    },
+                    "then": {
+                      "$ref": "request.duration"
+                    },
+                    "else": 5
+                  }
+                },
+                "aspect_ratio": {
+                  "$switch": {
+                    "cases": [
+                      {
+                        "when": {
+                          "$in": [
+                            {
+                              "$lower": {
+                                "$trim": {
+                                  "$ref": "request.aspectRatio"
+                                }
+                              }
+                            },
+                            [
+                              "auto",
+                              "16:9",
+                              "9:16",
+                              "1:1"
+                            ]
+                          ]
+                        },
+                        "then": {
+                          "$lower": {
+                            "$trim": {
+                              "$ref": "request.aspectRatio"
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "default": "16:9"
+                  }
+                },
+                "resolution": {
+                  "$switch": {
+                    "cases": [
+                      {
+                        "when": {
+                          "$in": [
+                            {
+                              "$lower": {
+                                "$trim": {
+                                  "$ref": "request.resolution"
+                                }
+                              }
+                            },
+                            [
+                              "720p",
+                              "1080p"
+                            ]
+                          ]
+                        },
+                        "then": {
+                          "$lower": {
+                            "$trim": {
+                              "$ref": "request.resolution"
+                            }
+                          }
+                        }
+                      }
+                    ],
+                    "default": "720p"
+                  }
+                },
+                "images": {
+                  "$omitEmpty": {
+                    "$map": {
+                      "from": {
+                        "$filter": {
+                          "from": {
+                            "$ref": "request.images"
+                          },
+                          "as": "media",
+                          "where": {
+                            "$and": [
+                              {
+                                "$ne": [
+                                  {
+                                    "$lower": {
+                                      "$trim": {
+                                        "$ref": "media.role"
+                                      }
+                                    }
+                                  },
+                                  "first_frame"
+                                ]
+                              },
+                              {
+                                "$ne": [
+                                  {
+                                    "$lower": {
+                                      "$trim": {
+                                        "$ref": "media.role"
+                                      }
+                                    }
+                                  },
+                                  "last_frame"
+                                ]
+                              },
+                              {
+                                "$ne": [
+                                  {
+                                    "$lower": {
+                                      "$trim": {
+                                        "$ref": "media.role"
+                                      }
+                                    }
+                                  },
+                                  "mask"
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "as": "media",
+                      "in": {
+                        "$ref": "media.value"
+                      }
+                    }
+                  }
+                },
+                "videos": {
+                  "$omitEmpty": {
+                    "$map": {
+                      "from": {
+                        "$ref": "request.videos"
+                      },
+                      "as": "media",
+                      "in": {
+                        "$ref": "media.value"
+                      }
+                    }
+                  }
+                },
+                "first_frame_image": {
+                  "$omitEmpty": {
+                    "$first": {
+                      "$map": {
+                        "from": {
+                          "$filter": {
+                            "from": {
+                              "$ref": "request.images"
+                            },
+                            "as": "media",
+                            "where": {
+                              "$eq": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$ref": "media.role"
+                                    }
+                                  }
+                                },
+                                "first_frame"
+                              ]
+                            }
+                          }
+                        },
+                        "as": "media",
+                        "in": {
+                          "$ref": "media.value"
+                        }
+                      }
+                    }
+                  }
+                },
+                "last_frame_image": {
+                  "$omitEmpty": {
+                    "$first": {
+                      "$map": {
+                        "from": {
+                          "$filter": {
+                            "from": {
+                              "$ref": "request.images"
+                            },
+                            "as": "media",
+                            "where": {
+                              "$eq": [
+                                {
+                                  "$lower": {
+                                    "$trim": {
+                                      "$ref": "media.role"
+                                    }
+                                  }
+                                },
+                                "last_frame"
+                              ]
+                            }
+                          }
+                        },
+                        "as": "media",
+                        "in": {
+                          "$ref": "media.value"
+                        }
+                      }
+                    }
+                  }
+                },
+                "extra": {
+                  "aspect_ratio": {
+                    "$switch": {
+                      "cases": [
+                        {
+                          "when": {
+                            "$in": [
+                              {
+                                "$lower": {
+                                  "$trim": {
+                                    "$ref": "request.aspectRatio"
+                                  }
+                                }
+                              },
+                              [
+                                "auto",
+                                "16:9",
+                                "9:16",
+                                "1:1"
+                              ]
+                            ]
+                          },
+                          "then": {
+                            "$lower": {
+                              "$trim": {
+                                "$ref": "request.aspectRatio"
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "default": "16:9"
+                    }
+                  },
+                  "resolution": {
+                    "$switch": {
+                      "cases": [
+                        {
+                          "when": {
+                            "$in": [
+                              {
+                                "$lower": {
+                                  "$trim": {
+                                    "$ref": "request.resolution"
+                                  }
+                                }
+                              },
+                              [
+                                "720p",
+                                "1080p"
+                              ]
+                            ]
+                          },
+                          "then": {
+                            "$lower": {
+                              "$trim": {
+                                "$ref": "request.resolution"
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "default": "720p"
+                    }
+                  }
+                }
+              },
+              {
+                "$coalesce": [
+                  {
+                    "$ref": "request.providerOptions.tudou-video-wan.body"
+                  },
+                  {
+                    "$ref": "request.providerOptions.tudou-video-wan.extra_body"
+                  },
+                  {}
+                ]
+              }
+            ]
+          }
+        },
+        "poll": {
+          "method": "GET",
+          "path": "/v1/tasks/{{taskId}}"
+        },
+        "response": {
+          "taskId": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.id"
+              },
+              {
+                "$ref": "response.data.task_id"
+              },
+              {
+                "$ref": "response.id"
+              },
+              {
+                "$ref": "response.task_id"
+              },
+              {
+                "$ref": "taskId"
+              }
+            ]
+          },
+          "status": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.status"
+              },
+              {
+                "$ref": "response.data.task_status"
+              },
+              {
+                "$ref": "response.status"
+              },
+              {
+                "$ref": "response.task_status"
+              },
+              "pending"
+            ]
+          },
+          "message": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.error.message"
+              },
+              {
+                "$ref": "response.error.message"
+              },
+              {
+                "$ref": "response.data.message"
+              },
+              {
+                "$ref": "response.data.fail_reason"
+              },
+              {
+                "$ref": "response.message"
+              },
+              {
+                "$ref": "response.fail_reason"
+              }
+            ]
+          },
+          "videos": {
+            "$coalesce": [
+              {
+                "$ref": "response.data.result.video_url"
+              },
+              {
+                "$ref": "response.data.result.url"
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.videos"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$map": {
+                  "from": {
+                    "$ref": "response.data.result.outputs"
+                  },
+                  "as": "item",
+                  "in": {
+                    "$coalesce": [
+                      {
+                        "$first": {
+                          "$ref": "item.url"
+                        }
+                      },
+                      {
+                        "$ref": "item.url"
+                      },
+                      {
+                        "$ref": "item.video_url"
+                      },
+                      {
+                        "$ref": "item"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "$ref": "response.data.metadata.url"
+              },
+              {
+                "$ref": "response.data.metadata.video_url"
+              }
+            ]
+          },
+          "errorPaths": [
+            "error.code",
+            "data.error.code"
+          ],
+          "messagePaths": [
+            "data.error.message",
+            "error.message",
+            "message",
+            "msg"
+          ],
+          "resultEphemeral": true
+        }
+      }
+    ]
+  },
+  "documentation": "# Tudou Video\n\n土豆（Tudou / ai-tudou）视频协议插件，适配「统一 `POST /v1/videos/generations` 提交 + `GET /v1/tasks/{task_id}` 轮询、按模型家族区分请求形状」的土豆网关视频接口。\n\n本插件由 BeefTV Contributors 维护，用于适配土豆协议网关接口；不表示 BeefTV 与该服务商存在隶属、授权或合作关系。网关地址与模型列表由渠道配置提供，协议层不绑定具体域名，也不写死模型对照表。\n\n六个 provider 对应补丁里的六个请求形状，按模型家族在渠道里为模型指定：\n\n- `tudou-video-sora2`：sora2 系。\n- `tudou-video-veo3`：veo3.1 系。\n- `tudou-video-kling`：kling-v3 系（仅图生视频）。\n- `tudou-video-pixverse`：pixverse-v6 系（含首尾帧）。\n- `tudou-video-seedance`：seedance 系与 minimax-h3 系（多模态参考）。\n- `tudou-video-grok`：grok-imagine-video 系（参考图进 extra）。\n- `tudou-video-wan`：wan3.0 系（万相 All-in-One：文生/图生/首尾帧/多参考图/参考视频）。\n- `tudou-video-wan`：wan3.0 系（万相 All-in-One：文生/图生/首尾帧/多参考图/参考视频）。\n\n完整接口见 [docs/interface.md](docs/interface.md)。\n\n---\n\n# Tudou Video 接口字段\n\n## 协议身份\n\n- 插件 ID：`tudou-video`。\n- Provider：`tudou-video-sora2`、`tudou-video-veo3`、`tudou-video-kling`、`tudou-video-pixverse`、`tudou-video-seedance`、`tudou-video-grok`、`tudou-video-wan`。\n- 能力：`video`。\n- 默认 Base URL：无。土豆网关地址因部署而异，必须由渠道显式配置。\n- 鉴权驱动：`bearer`（`Authorization: Bearer <apiKey>`）。\n- 提交：`POST /v1/videos/generations`，JSON body。\n- 轮询：`GET /v1/tasks/{task_id}`，与土豆异步图片共用同一任务接口。\n- 提交响应若已携带结果地址则直接当作完成，否则进入轮询。\n- 同步与异步由路径决定，协议层不按模型名切换流程；模型对照表由渠道配置。\n\n## 配置字段\n\n| 字段 | 类型 | 必填 | 含义 |\n| --- | --- | --- | --- |\n| `apiKey` | secret | 是 | API Key |\n\n## 统一字段映射\n\n六个 provider 共用同一套统一字段，仅 body 形状按家族不同。\n\n| 统一字段 | 类型 | 必填 | 上游映射 | 说明 |\n| --- | --- | --- | --- | --- |\n| `model` | string | 是 | `model` | 视频模型 ID，使用网关登记的规范名（如 seedance-2.0/-2.0-face/-2.5/-mini、minimax-h3-2k）。 |\n| `prompt` | string | 是 | `prompt` | 视频提示词。 |\n| `images` | media[] | 否 | `images` / `first_frame_image` / `last_frame_image` / `img_references` / `extra.reference_images` | 参考图，role=first_frame/last_frame 参与首尾帧语义，role=mask 不参与发送。 |\n| `videos` | media[] | 否 | `videos` | 参考视频，仅 seedance 系发送。 |\n| `audios` | media[] | 否 | `audios` | 参考音频，仅在已有图像或视频参考时随请求发送。 |\n| `duration` | integer | 否 | `duration` | 时长（秒）；合法档位由模型能力配置约束，缺省值也由能力配置给定额定档位。 |\n| `aspectRatio` | string | 否 | `aspect_ratio`（pixverse 为 `size`） | 画面比例，如 16:9；grok 系允许 1:1。 |\n| `resolution` | string | 否 | `resolution` | 分辨率档位，缺省 720p；sora2/kling/grok 系不发送。 |\n| `generateAudio` | boolean | 否 | `generate_audio` | 是否生成音频；seedance 系仅在为真时发送，pixverse 的 `audio` 是请求布尔字段（由界面音频开关 `generateAudio` 映射）。 |\n| `providerOptions` | object | 否 | 插件命名空间扩展字段 | `body`/`extra_body` 整包合并进提交 body。 |\n\n## 家族请求形状\n\n| Provider | 专属字段与规则 |\n| --- | --- |\n| `tudou-video-sora2` | `generate_audio` 恒发送（布尔）；参考图语义上仅 1 张；时长档位 4/8/12，缺省 8。 |\n| `tudou-video-veo3` | `resolution` 缺省 720p；时长档位 4/6/8，缺省 8；参考图 ≤3，多于 2 张发 `reference_mode: \"image\"`，否则 `\"frame\"`。 |\n| `tudou-video-kling` | 仅图生视频，至少 1 张参考图（kling-v3 ≤2 张）；时长 kling-v3 为 5/10/15 缺省 10，其余（如 omni）为 5/15 缺省 15。 |\n| `tudou-video-pixverse` | `size` 承载比例（16:9/4:3/1:1/3:4/9:16/2:3/3:2/21:9）；role=first_frame/last_frame 分别进 `first_frame_image`/`last_frame_image`，其余参考图进 `img_references`；时长 1..15 缺省 5；`audio` 由模型名 `-audio` 后缀决定，可用 `providerOptions.tudou-video-pixverse.audio` 覆盖。 |\n| `tudou-video-seedance` | 图像按 首帧→其余→末帧 排序，2.5 系最多 30 张、其余 9 张；`videos` ≤3；`audios` ≤3 且仅在有图像/视频参考时发送；时长 2.5 系 4..30 缺省 10，其余 4..15 缺省 4；face 系固定 720p。 |\n| `tudou-video-grok` | 参考图进 `extra.reference_images`（`{url, role}`，role 为 first_frame/last_frame/reference_image），≤7 张且需公网可访问；`resolution` 恒 720p；时长档位 6/10/15，缺省 6。 |\n| `tudou-video-wan` | 万相 All-in-One：`duration` 必填（2–30，有参考视频 2–15，禁止 -1，缺省兜底 5）；`aspect_ratio` 只允许 auto/16:9/9:16/1:1（无默认，兜底 16:9）；`resolution` 仅 720p/1080p 缺省 720p；`extra` 镜像 aspect_ratio 与 resolution；参考图 ≤10，role=first_frame/last_frame 进 `first_frame_image`/`last_frame_image`；`videos` 仅 wan3.0-video / wan3.0-video-fast 支持；素材必须公网 URL。 |\n\n## 上游请求模板逐字段清单\n\n六个 provider 的提交均为：\n\n| 上游位置 | 值或转换表达式 |\n| --- | --- |\n| `create.method` | `\"POST\"` |\n| `create.path` | `\"/v1/videos/generations\"` |\n| `create.contentType` | `\"application/json\"` |\n| `create.body.model` | `{\"$ref\":\"request.model\"}` |\n| `create.body.prompt` | `{\"$ref\":\"request.prompt\"}` |\n| `create.body.*` | 其余字段按上表家族规则映射 |\n| `create.body.providerOptions.*.body` | 整包合并进提交 body 的开放 schema |\n| `poll.method` | `\"GET\"` |\n| `poll.path` | `\"/v1/tasks/{{taskId}}\"` |\n\n## Provider 扩展键\n\n- `providerOptions.tudou-video-sora2.body`（或 `extra_body`）\n- `providerOptions.tudou-video-veo3.body`（或 `extra_body`）\n- `providerOptions.tudou-video-kling.body`（或 `extra_body`）\n- `providerOptions.tudou-video-pixverse.body`、`.audio`\n- `providerOptions.tudou-video-seedance.body`（或 `extra_body`）\n- `providerOptions.tudou-video-grok.body`（或 `extra_body`）\n\n## 响应映射逐字段清单\n\n| 映射位置 | 上游路径或转换表达式 |\n| --- | --- |\n| `response.taskId` | `data.id` → `data.task_id` → `id` → `task_id` → 既有 taskId |\n| `response.status` | `data.status` → `data.task_status` → `status` → `task_status`，再回退 pending |\n| `response.message` | `data.error.message` → `error.message` → `data.message` → `data.fail_reason` → `message` → `fail_reason` |\n| `response.videos` | `data.result.video_url` → `data.result.url` → 遍历 `data.result.videos`/`data.result.outputs`（条目取 `url[0]`/`url`/`video_url`/字符串本身）→ `data.metadata.url`/`data.metadata.video_url` |\n| `response.errorPaths` | `error.code`、`data.error.code` |\n| `response.messagePaths` | `data.error.message`、`error.message`、`message`、`msg` |\n| `response.resultEphemeral` | `true`，临时视频地址由宿主立即下载持久化 |\n\n## 响应与错误\n\n插件把上游 task/status/media 映射为统一结果。取视频按 `data.result` 内的 `video_url`/`url`/`videos`/`outputs` 顺序提取，条目里的 `url` 数组取第一项。状态大小写不敏感：`submitted` 等进入等待，`processing` 等进入处理中，`completed`（及 `complete/done/success` 等等价词）归一为成功，`failed/error/expired/cancelled` 归一为失败；失败信息取 `data.error.{code,message,type}`。提交返回 HTTP 200 但缺少任务 ID 时按失败处理，不会伪造成功。任务由后端持久化，重启后终态结果仍可继续轮询取回。\n\n## 兼容边界\n\n- role=mask 的蒙版媒体不参与任何家族的请求；蒙版编辑不是视频协议语义。\n- `tudou-video-grok` 的参考图要求公网可访问；本地素材会先由宿主下载并以上传后的可访问地址引用。\n- kling-v3 系没有文生视频：不提供参考图时网关会拒绝，能力配置层已把该协议的默认操作限定为图生视频。\n- pixverse 的 `audio` 是请求布尔字段；seedance 的 `generate_audio` 仅在开启时发送。\n- 模型名只用于路由到渠道配置的模型；seedance 系请使用网关登记的规范名，协议层不做改名映射。\n\n<!-- BEEFTV_PLUGIN_MANIFEST_START -->\n## Manifest 完整接口定义\n\n以下 JSON 与插件包内实际 `manifest.json` 逐字段一致，覆盖插件身份、权限、配置、鉴权、参数、校验、创建、Agent、查询、取消、结果下载、响应和 Agent 响应映射。`documentation` 字段的值就是当前完整文档；为避免文档在自身内部无限递归，JSON 中仅用等义占位文本表示正文。\n\n```json\n{\n  \"apiVersion\": \"beeftv.plugin/v2\",\n  \"id\": \"tudou-video\",\n  \"name\": \"Tudou Video\",\n  \"version\": \"1.0.0\",\n  \"author\": \"BeefTV Contributors\",\n  \"description\": \"土豆（ai-tudou）视频协议插件：统一 /v1/videos/generations 提交与 /v1/tasks 轮询，按模型家族拆分请求形状。\",\n  \"permissions\": [\n    \"generation.run\",\n    \"media.read\"\n  ],\n  \"configuration\": {\n    \"fields\": [\n      {\n        \"name\": \"apiKey\",\n        \"type\": \"secret\",\n        \"label\": \"API Key\",\n        \"required\": true\n      }\n    ]\n  },\n  \"contributes\": {\n    \"providers\": [\n      {\n        \"capabilities\": [\n          \"video\"\n        ],\n        \"scopes\": [\n          \"admin.system-channel\",\n          \"user.custom-channel\",\n          \"canvas\",\n          \"creation\",\n          \"agent\"\n        ],\n        \"requiresPublicMediaUrls\": false,\n        \"auth\": {\n          \"type\": \"bearer\",\n          \"field\": \"apiKey\"\n        },\n        \"id\": \"tudou-video-sora2\",\n        \"label\": \"Tudou Video Sora2\",\n        \"parameters\": [\n          {\n            \"name\": \"model\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"model\",\n            \"description\": \"视频模型 ID，由渠道模型列表配置，协议层不写死对照表。\"\n          },\n          {\n            \"name\": \"prompt\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"prompt\",\n            \"description\": \"视频提示词。\"\n          },\n          {\n            \"name\": \"images\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"images\",\n            \"description\": \"参考图（图生视频/首尾帧），role=first_frame/last_frame 参与排序或单独字段，role=mask 不参与发送。\"\n          },\n          {\n            \"name\": \"duration\",\n            \"type\": \"integer\",\n            \"required\": false,\n            \"mapping\": \"duration\",\n            \"description\": \"时长（秒），合法档位由模型能力配置约束，缺省按网关规则。\"\n          },\n          {\n            \"name\": \"aspectRatio\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"aspect_ratio/size\",\n            \"description\": \"画面比例，如 16:9。\"\n          },\n          {\n            \"name\": \"generateAudio\",\n            \"type\": \"boolean\",\n            \"required\": false,\n            \"mapping\": \"generate_audio\",\n            \"description\": \"是否生成音频。\"\n          },\n          {\n            \"name\": \"providerOptions\",\n            \"type\": \"object\",\n            \"required\": false,\n            \"mapping\": \"provider-specific fields\",\n            \"description\": \"插件命名空间内的扩展字段（body/extra_body 整包合并）。\"\n          }\n        ],\n        \"create\": {\n          \"method\": \"POST\",\n          \"path\": \"/v1/videos/generations\",\n          \"contentType\": \"application/json\",\n          \"body\": {\n            \"$merge\": [\n              {\n                \"model\": {\n                  \"$ref\": \"request.model\"\n                },\n                \"prompt\": {\n                  \"$ref\": \"request.prompt\"\n                },\n                \"duration\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"request.duration\"\n                  }\n                },\n                \"aspect_ratio\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"request.aspectRatio\"\n                  }\n                },\n                \"generate_audio\": {\n                  \"$ref\": \"request.generateAudio\"\n                },\n                \"images\": {\n                  \"$omitEmpty\": {\n                    \"$map\": {\n                      \"from\": {\n                        \"$filter\": {\n                          \"from\": {\n                            \"$ref\": \"request.images\"\n                          },\n                          \"as\": \"media\",\n                          \"where\": {\n                            \"$ne\": [\n                              {\n                                \"$ref\": \"media.role\"\n                              },\n                              \"mask\"\n                            ]\n                          }\n                        }\n                      },\n                      \"as\": \"media\",\n                      \"in\": {\n                        \"$ref\": \"media.value\"\n                      }\n                    }\n                  }\n                }\n              },\n              {\n                \"$coalesce\": [\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-sora2.body\"\n                  },\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-sora2.extra_body\"\n                  },\n                  {}\n                ]\n              }\n            ]\n          }\n        },\n        \"poll\": {\n          \"method\": \"GET\",\n          \"path\": \"/v1/tasks/{{taskId}}\"\n        },\n        \"response\": {\n          \"taskId\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.id\"\n              },\n              {\n                \"$ref\": \"response.data.task_id\"\n              },\n              {\n                \"$ref\": \"response.id\"\n              },\n              {\n                \"$ref\": \"response.task_id\"\n              },\n              {\n                \"$ref\": \"taskId\"\n              }\n            ]\n          },\n          \"status\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.status\"\n              },\n              {\n                \"$ref\": \"response.data.task_status\"\n              },\n              {\n                \"$ref\": \"response.status\"\n              },\n              {\n                \"$ref\": \"response.task_status\"\n              },\n              \"pending\"\n            ]\n          },\n          \"message\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.error.message\"\n              },\n              {\n                \"$ref\": \"response.error.message\"\n              },\n              {\n                \"$ref\": \"response.data.message\"\n              },\n              {\n                \"$ref\": \"response.data.fail_reason\"\n              },\n              {\n                \"$ref\": \"response.message\"\n              },\n              {\n                \"$ref\": \"response.fail_reason\"\n              }\n            ]\n          },\n          \"videos\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.result.video_url\"\n              },\n              {\n                \"$ref\": \"response.data.result.url\"\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.videos\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.outputs\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$ref\": \"response.data.metadata.url\"\n              },\n              {\n                \"$ref\": \"response.data.metadata.video_url\"\n              }\n            ]\n          },\n          \"errorPaths\": [\n            \"error.code\",\n            \"data.error.code\"\n          ],\n          \"messagePaths\": [\n            \"data.error.message\",\n            \"error.message\",\n            \"message\",\n            \"msg\"\n          ],\n          \"resultEphemeral\": true\n        }\n      },\n      {\n        \"capabilities\": [\n          \"video\"\n        ],\n        \"scopes\": [\n          \"admin.system-channel\",\n          \"user.custom-channel\",\n          \"canvas\",\n          \"creation\",\n          \"agent\"\n        ],\n        \"requiresPublicMediaUrls\": false,\n        \"auth\": {\n          \"type\": \"bearer\",\n          \"field\": \"apiKey\"\n        },\n        \"id\": \"tudou-video-veo3\",\n        \"label\": \"Tudou Video Veo3\",\n        \"parameters\": [\n          {\n            \"name\": \"model\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"model\",\n            \"description\": \"视频模型 ID，由渠道模型列表配置，协议层不写死对照表。\"\n          },\n          {\n            \"name\": \"prompt\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"prompt\",\n            \"description\": \"视频提示词。\"\n          },\n          {\n            \"name\": \"images\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"images\",\n            \"description\": \"参考图（图生视频/首尾帧），role=first_frame/last_frame 参与排序或单独字段，role=mask 不参与发送。\"\n          },\n          {\n            \"name\": \"duration\",\n            \"type\": \"integer\",\n            \"required\": false,\n            \"mapping\": \"duration\",\n            \"description\": \"时长（秒），合法档位由模型能力配置约束，缺省按网关规则。\"\n          },\n          {\n            \"name\": \"aspectRatio\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"aspect_ratio/size\",\n            \"description\": \"画面比例，如 16:9。\"\n          },\n          {\n            \"name\": \"resolution\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"resolution\",\n            \"description\": \"分辨率档位，缺省 720p。\"\n          },\n          {\n            \"name\": \"generateAudio\",\n            \"type\": \"boolean\",\n            \"required\": false,\n            \"mapping\": \"generate_audio\",\n            \"description\": \"是否生成音频。\"\n          },\n          {\n            \"name\": \"providerOptions\",\n            \"type\": \"object\",\n            \"required\": false,\n            \"mapping\": \"provider-specific fields\",\n            \"description\": \"插件命名空间内的扩展字段（body/extra_body 整包合并）。\"\n          }\n        ],\n        \"create\": {\n          \"method\": \"POST\",\n          \"path\": \"/v1/videos/generations\",\n          \"contentType\": \"application/json\",\n          \"body\": {\n            \"$merge\": [\n              {\n                \"model\": {\n                  \"$ref\": \"request.model\"\n                },\n                \"prompt\": {\n                  \"$ref\": \"request.prompt\"\n                },\n                \"resolution\": {\n                  \"$omitEmpty\": {\n                    \"$switch\": {\n                      \"cases\": [\n                        {\n                          \"when\": {\n                            \"$in\": [\n                              {\n                                \"$lower\": {\n                                  \"$trim\": {\n                                    \"$ref\": \"request.resolution\"\n                                  }\n                                }\n                              },\n                              [\n                                \"\",\n                                \"auto\"\n                              ]\n                            ]\n                          },\n                          \"then\": \"720p\"\n                        }\n                      ],\n                      \"default\": {\n                        \"$lower\": {\n                          \"$trim\": {\n                            \"$ref\": \"request.resolution\"\n                          }\n                        }\n                      }\n                    }\n                  }\n                },\n                \"duration\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"request.duration\"\n                  }\n                },\n                \"aspect_ratio\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"request.aspectRatio\"\n                  }\n                },\n                \"generate_audio\": {\n                  \"$ref\": \"request.generateAudio\"\n                },\n                \"images\": {\n                  \"$omitEmpty\": {\n                    \"$map\": {\n                      \"from\": {\n                        \"$filter\": {\n                          \"from\": {\n                            \"$ref\": \"request.images\"\n                          },\n                          \"as\": \"media\",\n                          \"where\": {\n                            \"$ne\": [\n                              {\n                                \"$ref\": \"media.role\"\n                              },\n                              \"mask\"\n                            ]\n                          }\n                        }\n                      },\n                      \"as\": \"media\",\n                      \"in\": {\n                        \"$ref\": \"media.value\"\n                      }\n                    }\n                  }\n                },\n                \"reference_mode\": {\n                  \"$omitEmpty\": {\n                    \"$if\": {\n                      \"condition\": {\n                        \"$gt\": [\n                          {\n                            \"$len\": {\n                              \"$ref\": \"request.images\"\n                            }\n                          },\n                          0\n                        ]\n                      },\n                      \"then\": {\n                        \"$if\": {\n                          \"condition\": {\n                            \"$gt\": [\n                              {\n                                \"$len\": {\n                                  \"$ref\": \"request.images\"\n                                }\n                              },\n                              2\n                            ]\n                          },\n                          \"then\": \"image\",\n                          \"else\": \"frame\"\n                        }\n                      },\n                      \"else\": null\n                    }\n                  }\n                }\n              },\n              {\n                \"$coalesce\": [\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-veo3.body\"\n                  },\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-veo3.extra_body\"\n                  },\n                  {}\n                ]\n              }\n            ]\n          }\n        },\n        \"poll\": {\n          \"method\": \"GET\",\n          \"path\": \"/v1/tasks/{{taskId}}\"\n        },\n        \"response\": {\n          \"taskId\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.id\"\n              },\n              {\n                \"$ref\": \"response.data.task_id\"\n              },\n              {\n                \"$ref\": \"response.id\"\n              },\n              {\n                \"$ref\": \"response.task_id\"\n              },\n              {\n                \"$ref\": \"taskId\"\n              }\n            ]\n          },\n          \"status\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.status\"\n              },\n              {\n                \"$ref\": \"response.data.task_status\"\n              },\n              {\n                \"$ref\": \"response.status\"\n              },\n              {\n                \"$ref\": \"response.task_status\"\n              },\n              \"pending\"\n            ]\n          },\n          \"message\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.error.message\"\n              },\n              {\n                \"$ref\": \"response.error.message\"\n              },\n              {\n                \"$ref\": \"response.data.message\"\n              },\n              {\n                \"$ref\": \"response.data.fail_reason\"\n              },\n              {\n                \"$ref\": \"response.message\"\n              },\n              {\n                \"$ref\": \"response.fail_reason\"\n              }\n            ]\n          },\n          \"videos\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.result.video_url\"\n              },\n              {\n                \"$ref\": \"response.data.result.url\"\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.videos\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.outputs\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$ref\": \"response.data.metadata.url\"\n              },\n              {\n                \"$ref\": \"response.data.metadata.video_url\"\n              }\n            ]\n          },\n          \"errorPaths\": [\n            \"error.code\",\n            \"data.error.code\"\n          ],\n          \"messagePaths\": [\n            \"data.error.message\",\n            \"error.message\",\n            \"message\",\n            \"msg\"\n          ],\n          \"resultEphemeral\": true\n        }\n      },\n      {\n        \"capabilities\": [\n          \"video\"\n        ],\n        \"scopes\": [\n          \"admin.system-channel\",\n          \"user.custom-channel\",\n          \"canvas\",\n          \"creation\",\n          \"agent\"\n        ],\n        \"requiresPublicMediaUrls\": false,\n        \"auth\": {\n          \"type\": \"bearer\",\n          \"field\": \"apiKey\"\n        },\n        \"id\": \"tudou-video-kling\",\n        \"label\": \"Tudou Video Kling\",\n        \"parameters\": [\n          {\n            \"name\": \"model\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"model\",\n            \"description\": \"视频模型 ID，由渠道模型列表配置，协议层不写死对照表。\"\n          },\n          {\n            \"name\": \"prompt\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"prompt\",\n            \"description\": \"视频提示词。\"\n          },\n          {\n            \"name\": \"images\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"images\",\n            \"description\": \"参考图（图生视频/首尾帧），role=first_frame/last_frame 参与排序或单独字段，role=mask 不参与发送。\"\n          },\n          {\n            \"name\": \"duration\",\n            \"type\": \"integer\",\n            \"required\": false,\n            \"mapping\": \"duration\",\n            \"description\": \"时长（秒），合法档位由模型能力配置约束，缺省按网关规则。\"\n          },\n          {\n            \"name\": \"aspectRatio\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"aspect_ratio/size\",\n            \"description\": \"画面比例，如 16:9。\"\n          },\n          {\n            \"name\": \"generateAudio\",\n            \"type\": \"boolean\",\n            \"required\": false,\n            \"mapping\": \"generate_audio\",\n            \"description\": \"是否生成音频。\"\n          },\n          {\n            \"name\": \"providerOptions\",\n            \"type\": \"object\",\n            \"required\": false,\n            \"mapping\": \"provider-specific fields\",\n            \"description\": \"插件命名空间内的扩展字段（body/extra_body 整包合并）。\"\n          }\n        ],\n        \"create\": {\n          \"method\": \"POST\",\n          \"path\": \"/v1/videos/generations\",\n          \"contentType\": \"application/json\",\n          \"body\": {\n            \"$merge\": [\n              {\n                \"model\": {\n                  \"$ref\": \"request.model\"\n                },\n                \"prompt\": {\n                  \"$ref\": \"request.prompt\"\n                },\n                \"duration\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"request.duration\"\n                  }\n                },\n                \"aspect_ratio\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"request.aspectRatio\"\n                  }\n                },\n                \"generate_audio\": {\n                  \"$ref\": \"request.generateAudio\"\n                },\n                \"images\": {\n                  \"$omitEmpty\": {\n                    \"$map\": {\n                      \"from\": {\n                        \"$filter\": {\n                          \"from\": {\n                            \"$ref\": \"request.images\"\n                          },\n                          \"as\": \"media\",\n                          \"where\": {\n                            \"$ne\": [\n                              {\n                                \"$ref\": \"media.role\"\n                              },\n                              \"mask\"\n                            ]\n                          }\n                        }\n                      },\n                      \"as\": \"media\",\n                      \"in\": {\n                        \"$ref\": \"media.value\"\n                      }\n                    }\n                  }\n                }\n              },\n              {\n                \"$coalesce\": [\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-kling.body\"\n                  },\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-kling.extra_body\"\n                  },\n                  {}\n                ]\n              }\n            ]\n          }\n        },\n        \"poll\": {\n          \"method\": \"GET\",\n          \"path\": \"/v1/tasks/{{taskId}}\"\n        },\n        \"response\": {\n          \"taskId\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.id\"\n              },\n              {\n                \"$ref\": \"response.data.task_id\"\n              },\n              {\n                \"$ref\": \"response.id\"\n              },\n              {\n                \"$ref\": \"response.task_id\"\n              },\n              {\n                \"$ref\": \"taskId\"\n              }\n            ]\n          },\n          \"status\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.status\"\n              },\n              {\n                \"$ref\": \"response.data.task_status\"\n              },\n              {\n                \"$ref\": \"response.status\"\n              },\n              {\n                \"$ref\": \"response.task_status\"\n              },\n              \"pending\"\n            ]\n          },\n          \"message\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.error.message\"\n              },\n              {\n                \"$ref\": \"response.error.message\"\n              },\n              {\n                \"$ref\": \"response.data.message\"\n              },\n              {\n                \"$ref\": \"response.data.fail_reason\"\n              },\n              {\n                \"$ref\": \"response.message\"\n              },\n              {\n                \"$ref\": \"response.fail_reason\"\n              }\n            ]\n          },\n          \"videos\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.result.video_url\"\n              },\n              {\n                \"$ref\": \"response.data.result.url\"\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.videos\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.outputs\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$ref\": \"response.data.metadata.url\"\n              },\n              {\n                \"$ref\": \"response.data.metadata.video_url\"\n              }\n            ]\n          },\n          \"errorPaths\": [\n            \"error.code\",\n            \"data.error.code\"\n          ],\n          \"messagePaths\": [\n            \"data.error.message\",\n            \"error.message\",\n            \"message\",\n            \"msg\"\n          ],\n          \"resultEphemeral\": true\n        }\n      },\n      {\n        \"capabilities\": [\n          \"video\"\n        ],\n        \"scopes\": [\n          \"admin.system-channel\",\n          \"user.custom-channel\",\n          \"canvas\",\n          \"creation\",\n          \"agent\"\n        ],\n        \"requiresPublicMediaUrls\": false,\n        \"auth\": {\n          \"type\": \"bearer\",\n          \"field\": \"apiKey\"\n        },\n        \"id\": \"tudou-video-pixverse\",\n        \"label\": \"Tudou Video PixVerse\",\n        \"parameters\": [\n          {\n            \"name\": \"model\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"model\",\n            \"description\": \"视频模型 ID，由渠道模型列表配置，协议层不写死对照表。\"\n          },\n          {\n            \"name\": \"prompt\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"prompt\",\n            \"description\": \"视频提示词。\"\n          },\n          {\n            \"name\": \"images\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"images\",\n            \"description\": \"参考图（图生视频/首尾帧），role=first_frame/last_frame 参与排序或单独字段，role=mask 不参与发送。\"\n          },\n          {\n            \"name\": \"duration\",\n            \"type\": \"integer\",\n            \"required\": false,\n            \"mapping\": \"duration\",\n            \"description\": \"时长（秒），合法档位由模型能力配置约束，缺省按网关规则。\"\n          },\n          {\n            \"name\": \"aspectRatio\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"aspect_ratio/size\",\n            \"description\": \"画面比例，如 16:9。\"\n          },\n          {\n            \"name\": \"resolution\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"resolution\",\n            \"description\": \"分辨率档位，缺省 720p。\"\n          },\n          {\n            \"name\": \"providerOptions\",\n            \"type\": \"object\",\n            \"required\": false,\n            \"mapping\": \"provider-specific fields\",\n            \"description\": \"插件命名空间内的扩展字段（body/extra_body 整包合并）。\"\n          }\n        ],\n        \"create\": {\n          \"method\": \"POST\",\n          \"path\": \"/v1/videos/generations\",\n          \"contentType\": \"application/json\",\n          \"body\": {\n            \"$merge\": [\n              {\n                \"model\": {\n                  \"$ref\": \"request.model\"\n                },\n                \"prompt\": {\n                  \"$ref\": \"request.prompt\"\n                },\n                \"resolution\": {\n                  \"$omitEmpty\": {\n                    \"$switch\": {\n                      \"cases\": [\n                        {\n                          \"when\": {\n                            \"$in\": [\n                              {\n                                \"$lower\": {\n                                  \"$trim\": {\n                                    \"$ref\": \"request.resolution\"\n                                  }\n                                }\n                              },\n                              [\n                                \"\",\n                                \"auto\"\n                              ]\n                            ]\n                          },\n                          \"then\": \"720p\"\n                        }\n                      ],\n                      \"default\": {\n                        \"$lower\": {\n                          \"$trim\": {\n                            \"$ref\": \"request.resolution\"\n                          }\n                        }\n                      }\n                    }\n                  }\n                },\n                \"size\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"request.aspectRatio\"\n                  }\n                },\n                \"duration\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"request.duration\"\n                  }\n                },\n                \"first_frame_image\": {\n                  \"$omitEmpty\": {\n                    \"$first\": {\n                      \"$map\": {\n                        \"from\": {\n                          \"$filter\": {\n                            \"from\": {\n                              \"$ref\": \"request.images\"\n                            },\n                            \"as\": \"media\",\n                            \"where\": {\n                              \"$eq\": [\n                                {\n                                  \"$lower\": {\n                                    \"$trim\": {\n                                      \"$ref\": \"media.role\"\n                                    }\n                                  }\n                                },\n                                \"first_frame\"\n                              ]\n                            }\n                          }\n                        },\n                        \"as\": \"media\",\n                        \"in\": {\n                          \"$ref\": \"media.value\"\n                        }\n                      }\n                    }\n                  }\n                },\n                \"last_frame_image\": {\n                  \"$omitEmpty\": {\n                    \"$first\": {\n                      \"$map\": {\n                        \"from\": {\n                          \"$filter\": {\n                            \"from\": {\n                              \"$ref\": \"request.images\"\n                            },\n                            \"as\": \"media\",\n                            \"where\": {\n                              \"$eq\": [\n                                {\n                                  \"$lower\": {\n                                    \"$trim\": {\n                                      \"$ref\": \"media.role\"\n                                    }\n                                  }\n                                },\n                                \"last_frame\"\n                              ]\n                            }\n                          }\n                        },\n                        \"as\": \"media\",\n                        \"in\": {\n                          \"$ref\": \"media.value\"\n                        }\n                      }\n                    }\n                  }\n                },\n                \"img_references\": {\n                  \"$omitEmpty\": {\n                    \"$map\": {\n                      \"from\": {\n                        \"$filter\": {\n                          \"from\": {\n                            \"$ref\": \"request.images\"\n                          },\n                          \"as\": \"media\",\n                          \"where\": {\n                            \"$and\": [\n                              {\n                                \"$ne\": [\n                                  {\n                                    \"$lower\": {\n                                      \"$trim\": {\n                                        \"$ref\": \"media.role\"\n                                      }\n                                    }\n                                  },\n                                  \"first_frame\"\n                                ]\n                              },\n                              {\n                                \"$ne\": [\n                                  {\n                                    \"$lower\": {\n                                      \"$trim\": {\n                                        \"$ref\": \"media.role\"\n                                      }\n                                    }\n                                  },\n                                  \"last_frame\"\n                                ]\n                              },\n                              {\n                                \"$ne\": [\n                                  {\n                                    \"$lower\": {\n                                      \"$trim\": {\n                                        \"$ref\": \"media.role\"\n                                      }\n                                    }\n                                  },\n                                  \"mask\"\n                                ]\n                              }\n                            ]\n                          }\n                        }\n                      },\n                      \"as\": \"media\",\n                      \"in\": {\n                        \"$ref\": \"media.value\"\n                      }\n                    }\n                  }\n                },\n                \"audio\": {\n                  \"$ref\": \"request.generateAudio\"\n                }\n              },\n              {\n                \"$coalesce\": [\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-pixverse.body\"\n                  },\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-pixverse.extra_body\"\n                  },\n                  {}\n                ]\n              }\n            ]\n          }\n        },\n        \"poll\": {\n          \"method\": \"GET\",\n          \"path\": \"/v1/tasks/{{taskId}}\"\n        },\n        \"response\": {\n          \"taskId\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.id\"\n              },\n              {\n                \"$ref\": \"response.data.task_id\"\n              },\n              {\n                \"$ref\": \"response.id\"\n              },\n              {\n                \"$ref\": \"response.task_id\"\n              },\n              {\n                \"$ref\": \"taskId\"\n              }\n            ]\n          },\n          \"status\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.status\"\n              },\n              {\n                \"$ref\": \"response.data.task_status\"\n              },\n              {\n                \"$ref\": \"response.status\"\n              },\n              {\n                \"$ref\": \"response.task_status\"\n              },\n              \"pending\"\n            ]\n          },\n          \"message\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.error.message\"\n              },\n              {\n                \"$ref\": \"response.error.message\"\n              },\n              {\n                \"$ref\": \"response.data.message\"\n              },\n              {\n                \"$ref\": \"response.data.fail_reason\"\n              },\n              {\n                \"$ref\": \"response.message\"\n              },\n              {\n                \"$ref\": \"response.fail_reason\"\n              }\n            ]\n          },\n          \"videos\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.result.video_url\"\n              },\n              {\n                \"$ref\": \"response.data.result.url\"\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.videos\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.outputs\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$ref\": \"response.data.metadata.url\"\n              },\n              {\n                \"$ref\": \"response.data.metadata.video_url\"\n              }\n            ]\n          },\n          \"errorPaths\": [\n            \"error.code\",\n            \"data.error.code\"\n          ],\n          \"messagePaths\": [\n            \"data.error.message\",\n            \"error.message\",\n            \"message\",\n            \"msg\"\n          ],\n          \"resultEphemeral\": true\n        }\n      },\n      {\n        \"capabilities\": [\n          \"video\"\n        ],\n        \"scopes\": [\n          \"admin.system-channel\",\n          \"user.custom-channel\",\n          \"canvas\",\n          \"creation\",\n          \"agent\"\n        ],\n        \"requiresPublicMediaUrls\": false,\n        \"auth\": {\n          \"type\": \"bearer\",\n          \"field\": \"apiKey\"\n        },\n        \"id\": \"tudou-video-seedance\",\n        \"label\": \"Tudou Video Seedance\",\n        \"parameters\": [\n          {\n            \"name\": \"model\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"model\",\n            \"description\": \"视频模型 ID，由渠道模型列表配置，协议层不写死对照表。\"\n          },\n          {\n            \"name\": \"prompt\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"prompt\",\n            \"description\": \"视频提示词。\"\n          },\n          {\n            \"name\": \"images\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"images\",\n            \"description\": \"参考图（图生视频/首尾帧），role=first_frame/last_frame 参与排序或单独字段，role=mask 不参与发送。\"\n          },\n          {\n            \"name\": \"videos\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"videos\",\n            \"description\": \"参考视频，公网 URL 或 data URL。\"\n          },\n          {\n            \"name\": \"audios\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"audios\",\n            \"description\": \"参考音频，仅在已有图像或视频参考时随请求发送。\"\n          },\n          {\n            \"name\": \"duration\",\n            \"type\": \"integer\",\n            \"required\": false,\n            \"mapping\": \"duration\",\n            \"description\": \"时长（秒），合法档位由模型能力配置约束，缺省按网关规则。\"\n          },\n          {\n            \"name\": \"aspectRatio\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"aspect_ratio/size\",\n            \"description\": \"画面比例，如 16:9。\"\n          },\n          {\n            \"name\": \"resolution\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"resolution\",\n            \"description\": \"分辨率档位，缺省 720p。\"\n          },\n          {\n            \"name\": \"generateAudio\",\n            \"type\": \"boolean\",\n            \"required\": false,\n            \"mapping\": \"generate_audio\",\n            \"description\": \"是否生成音频。\"\n          },\n          {\n            \"name\": \"providerOptions\",\n            \"type\": \"object\",\n            \"required\": false,\n            \"mapping\": \"provider-specific fields\",\n            \"description\": \"插件命名空间内的扩展字段（body/extra_body 整包合并）。\"\n          }\n        ],\n        \"create\": {\n          \"method\": \"POST\",\n          \"path\": \"/v1/videos/generations\",\n          \"contentType\": \"application/json\",\n          \"body\": {\n            \"$merge\": [\n              {\n                \"model\": {\n                  \"$ref\": \"request.model\"\n                },\n                \"prompt\": {\n                  \"$ref\": \"request.prompt\"\n                },\n                \"duration\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"request.duration\"\n                  }\n                },\n                \"aspect_ratio\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"request.aspectRatio\"\n                  }\n                },\n                \"resolution\": {\n                  \"$omitEmpty\": {\n                    \"$switch\": {\n                      \"cases\": [\n                        {\n                          \"when\": {\n                            \"$in\": [\n                              {\n                                \"$lower\": {\n                                  \"$trim\": {\n                                    \"$ref\": \"request.resolution\"\n                                  }\n                                }\n                              },\n                              [\n                                \"\",\n                                \"auto\"\n                              ]\n                            ]\n                          },\n                          \"then\": \"720p\"\n                        }\n                      ],\n                      \"default\": {\n                        \"$lower\": {\n                          \"$trim\": {\n                            \"$ref\": \"request.resolution\"\n                          }\n                        }\n                      }\n                    }\n                  }\n                },\n                \"generate_audio\": {\n                  \"$omitEmpty\": {\n                    \"$if\": {\n                      \"condition\": {\n                        \"$ref\": \"request.generateAudio\"\n                      },\n                      \"then\": true,\n                      \"else\": null\n                    }\n                  }\n                },\n                \"images\": {\n                  \"$omitEmpty\": {\n                    \"$map\": {\n                      \"from\": {\n                        \"$concatArrays\": [\n                          {\n                            \"$filter\": {\n                              \"from\": {\n                                \"$ref\": \"request.images\"\n                              },\n                              \"as\": \"media\",\n                              \"where\": {\n                                \"$eq\": [\n                                  {\n                                    \"$lower\": {\n                                      \"$trim\": {\n                                        \"$ref\": \"media.role\"\n                                      }\n                                    }\n                                  },\n                                  \"first_frame\"\n                                ]\n                              }\n                            }\n                          },\n                          {\n                            \"$filter\": {\n                              \"from\": {\n                                \"$ref\": \"request.images\"\n                              },\n                              \"as\": \"media\",\n                              \"where\": {\n                                \"$and\": [\n                                  {\n                                    \"$ne\": [\n                                      {\n                                        \"$lower\": {\n                                          \"$trim\": {\n                                            \"$ref\": \"media.role\"\n                                          }\n                                        }\n                                      },\n                                      \"first_frame\"\n                                    ]\n                                  },\n                                  {\n                                    \"$ne\": [\n                                      {\n                                        \"$lower\": {\n                                          \"$trim\": {\n                                            \"$ref\": \"media.role\"\n                                          }\n                                        }\n                                      },\n                                      \"last_frame\"\n                                    ]\n                                  },\n                                  {\n                                    \"$ne\": [\n                                      {\n                                        \"$lower\": {\n                                          \"$trim\": {\n                                            \"$ref\": \"media.role\"\n                                          }\n                                        }\n                                      },\n                                      \"mask\"\n                                    ]\n                                  }\n                                ]\n                              }\n                            }\n                          },\n                          {\n                            \"$filter\": {\n                              \"from\": {\n                                \"$ref\": \"request.images\"\n                              },\n                              \"as\": \"media\",\n                              \"where\": {\n                                \"$eq\": [\n                                  {\n                                    \"$lower\": {\n                                      \"$trim\": {\n                                        \"$ref\": \"media.role\"\n                                      }\n                                    }\n                                  },\n                                  \"last_frame\"\n                                ]\n                              }\n                            }\n                          }\n                        ]\n                      },\n                      \"as\": \"media\",\n                      \"in\": {\n                        \"$ref\": \"media.value\"\n                      }\n                    }\n                  }\n                },\n                \"videos\": {\n                  \"$omitEmpty\": {\n                    \"$map\": {\n                      \"from\": {\n                        \"$ref\": \"request.videos\"\n                      },\n                      \"as\": \"media\",\n                      \"in\": {\n                        \"$ref\": \"media.value\"\n                      }\n                    }\n                  }\n                },\n                \"audios\": {\n                  \"$omitEmpty\": {\n                    \"$if\": {\n                      \"condition\": {\n                        \"$or\": [\n                          {\n                            \"$gt\": [\n                              {\n                                \"$len\": {\n                                  \"$ref\": \"request.images\"\n                                }\n                              },\n                              0\n                            ]\n                          },\n                          {\n                            \"$gt\": [\n                              {\n                                \"$len\": {\n                                  \"$ref\": \"request.videos\"\n                                }\n                              },\n                              0\n                            ]\n                          }\n                        ]\n                      },\n                      \"then\": {\n                        \"$map\": {\n                          \"from\": {\n                            \"$ref\": \"request.audios\"\n                          },\n                          \"as\": \"media\",\n                          \"in\": {\n                            \"$ref\": \"media.value\"\n                          }\n                        }\n                      },\n                      \"else\": null\n                    }\n                  }\n                }\n              },\n              {\n                \"$coalesce\": [\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-seedance.body\"\n                  },\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-seedance.extra_body\"\n                  },\n                  {}\n                ]\n              }\n            ]\n          }\n        },\n        \"poll\": {\n          \"method\": \"GET\",\n          \"path\": \"/v1/tasks/{{taskId}}\"\n        },\n        \"response\": {\n          \"taskId\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.id\"\n              },\n              {\n                \"$ref\": \"response.data.task_id\"\n              },\n              {\n                \"$ref\": \"response.id\"\n              },\n              {\n                \"$ref\": \"response.task_id\"\n              },\n              {\n                \"$ref\": \"taskId\"\n              }\n            ]\n          },\n          \"status\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.status\"\n              },\n              {\n                \"$ref\": \"response.data.task_status\"\n              },\n              {\n                \"$ref\": \"response.status\"\n              },\n              {\n                \"$ref\": \"response.task_status\"\n              },\n              \"pending\"\n            ]\n          },\n          \"message\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.error.message\"\n              },\n              {\n                \"$ref\": \"response.error.message\"\n              },\n              {\n                \"$ref\": \"response.data.message\"\n              },\n              {\n                \"$ref\": \"response.data.fail_reason\"\n              },\n              {\n                \"$ref\": \"response.message\"\n              },\n              {\n                \"$ref\": \"response.fail_reason\"\n              }\n            ]\n          },\n          \"videos\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.result.video_url\"\n              },\n              {\n                \"$ref\": \"response.data.result.url\"\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.videos\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.outputs\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$ref\": \"response.data.metadata.url\"\n              },\n              {\n                \"$ref\": \"response.data.metadata.video_url\"\n              }\n            ]\n          },\n          \"errorPaths\": [\n            \"error.code\",\n            \"data.error.code\"\n          ],\n          \"messagePaths\": [\n            \"data.error.message\",\n            \"error.message\",\n            \"message\",\n            \"msg\"\n          ],\n          \"resultEphemeral\": true\n        }\n      },\n      {\n        \"capabilities\": [\n          \"video\"\n        ],\n        \"scopes\": [\n          \"admin.system-channel\",\n          \"user.custom-channel\",\n          \"canvas\",\n          \"creation\",\n          \"agent\"\n        ],\n        \"requiresPublicMediaUrls\": false,\n        \"auth\": {\n          \"type\": \"bearer\",\n          \"field\": \"apiKey\"\n        },\n        \"id\": \"tudou-video-grok\",\n        \"label\": \"Tudou Video Grok\",\n        \"parameters\": [\n          {\n            \"name\": \"model\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"model\",\n            \"description\": \"视频模型 ID，由渠道模型列表配置，协议层不写死对照表。\"\n          },\n          {\n            \"name\": \"prompt\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"prompt\",\n            \"description\": \"视频提示词。\"\n          },\n          {\n            \"name\": \"images\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"images\",\n            \"description\": \"参考图（图生视频/首尾帧），role=first_frame/last_frame 参与排序或单独字段，role=mask 不参与发送。\"\n          },\n          {\n            \"name\": \"duration\",\n            \"type\": \"integer\",\n            \"required\": false,\n            \"mapping\": \"duration\",\n            \"description\": \"时长（秒），合法档位由模型能力配置约束，缺省按网关规则。\"\n          },\n          {\n            \"name\": \"aspectRatio\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"aspect_ratio/size\",\n            \"description\": \"画面比例，如 16:9。\"\n          },\n          {\n            \"name\": \"providerOptions\",\n            \"type\": \"object\",\n            \"required\": false,\n            \"mapping\": \"provider-specific fields\",\n            \"description\": \"插件命名空间内的扩展字段（body/extra_body 整包合并）。\"\n          }\n        ],\n        \"create\": {\n          \"method\": \"POST\",\n          \"path\": \"/v1/videos/generations\",\n          \"contentType\": \"application/json\",\n          \"body\": {\n            \"$merge\": [\n              {\n                \"model\": {\n                  \"$ref\": \"request.model\"\n                },\n                \"prompt\": {\n                  \"$ref\": \"request.prompt\"\n                },\n                \"duration\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"request.duration\"\n                  }\n                },\n                \"aspect_ratio\": {\n                  \"$omitEmpty\": {\n                    \"$ref\": \"request.aspectRatio\"\n                  }\n                },\n                \"resolution\": \"720p\",\n                \"extra\": {\n                  \"aspect_ratio\": {\n                    \"$omitEmpty\": {\n                      \"$ref\": \"request.aspectRatio\"\n                    }\n                  },\n                  \"resolution\": \"720p\",\n                  \"reference_images\": {\n                    \"$omitEmpty\": {\n                      \"$map\": {\n                        \"from\": {\n                          \"$filter\": {\n                            \"from\": {\n                              \"$ref\": \"request.images\"\n                            },\n                            \"as\": \"media\",\n                            \"where\": {\n                              \"$ne\": [\n                                {\n                                  \"$ref\": \"media.role\"\n                                },\n                                \"mask\"\n                              ]\n                            }\n                          }\n                        },\n                        \"as\": \"media\",\n                        \"in\": {\n                          \"url\": {\n                            \"$ref\": \"media.value\"\n                          },\n                          \"role\": {\n                            \"$switch\": {\n                              \"cases\": [\n                                {\n                                  \"when\": {\n                                    \"$in\": [\n                                      {\n                                        \"$lower\": {\n                                          \"$trim\": {\n                                            \"$ref\": \"media.role\"\n                                          }\n                                        }\n                                      },\n                                      [\n                                        \"first_frame\",\n                                        \"last_frame\"\n                                      ]\n                                    ]\n                                  },\n                                  \"then\": {\n                                    \"$lower\": {\n                                      \"$trim\": {\n                                        \"$ref\": \"media.role\"\n                                      }\n                                    }\n                                  }\n                                }\n                              ],\n                              \"default\": \"reference_image\"\n                            }\n                          }\n                        }\n                      }\n                    }\n                  }\n                }\n              },\n              {\n                \"$coalesce\": [\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-grok.body\"\n                  },\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-grok.extra_body\"\n                  },\n                  {}\n                ]\n              }\n            ]\n          }\n        },\n        \"poll\": {\n          \"method\": \"GET\",\n          \"path\": \"/v1/tasks/{{taskId}}\"\n        },\n        \"response\": {\n          \"taskId\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.id\"\n              },\n              {\n                \"$ref\": \"response.data.task_id\"\n              },\n              {\n                \"$ref\": \"response.id\"\n              },\n              {\n                \"$ref\": \"response.task_id\"\n              },\n              {\n                \"$ref\": \"taskId\"\n              }\n            ]\n          },\n          \"status\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.status\"\n              },\n              {\n                \"$ref\": \"response.data.task_status\"\n              },\n              {\n                \"$ref\": \"response.status\"\n              },\n              {\n                \"$ref\": \"response.task_status\"\n              },\n              \"pending\"\n            ]\n          },\n          \"message\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.error.message\"\n              },\n              {\n                \"$ref\": \"response.error.message\"\n              },\n              {\n                \"$ref\": \"response.data.message\"\n              },\n              {\n                \"$ref\": \"response.data.fail_reason\"\n              },\n              {\n                \"$ref\": \"response.message\"\n              },\n              {\n                \"$ref\": \"response.fail_reason\"\n              }\n            ]\n          },\n          \"videos\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.result.video_url\"\n              },\n              {\n                \"$ref\": \"response.data.result.url\"\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.videos\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.outputs\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$ref\": \"response.data.metadata.url\"\n              },\n              {\n                \"$ref\": \"response.data.metadata.video_url\"\n              }\n            ]\n          },\n          \"errorPaths\": [\n            \"error.code\",\n            \"data.error.code\"\n          ],\n          \"messagePaths\": [\n            \"data.error.message\",\n            \"error.message\",\n            \"message\",\n            \"msg\"\n          ],\n          \"resultEphemeral\": true\n        }\n      },\n      {\n        \"capabilities\": [\n          \"video\"\n        ],\n        \"scopes\": [\n          \"admin.system-channel\",\n          \"user.custom-channel\",\n          \"canvas\",\n          \"creation\",\n          \"agent\"\n        ],\n        \"requiresPublicMediaUrls\": false,\n        \"auth\": {\n          \"type\": \"bearer\",\n          \"field\": \"apiKey\"\n        },\n        \"id\": \"tudou-video-wan\",\n        \"label\": \"Tudou Video Wan\",\n        \"parameters\": [\n          {\n            \"name\": \"model\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"model\",\n            \"description\": \"wan3.0 / wan3.0-fast / wan3.0-video / wan3.0-video-fast。\"\n          },\n          {\n            \"name\": \"prompt\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"prompt\",\n            \"description\": \"视频描述，可用「图1」「视频1」指代素材顺序。\"\n          },\n          {\n            \"name\": \"images\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"images / first_frame_image / last_frame_image\",\n            \"description\": \"参考图（公网 URL），最多 10 张；role=first_frame/last_frame 进首尾帧字段，role=mask 不发送。\"\n          },\n          {\n            \"name\": \"videos\",\n            \"type\": \"media[]\",\n            \"required\": false,\n            \"mapping\": \"videos\",\n            \"description\": \"参考视频，仅 wan3.0-video / wan3.0-video-fast 支持。\"\n          },\n          {\n            \"name\": \"duration\",\n            \"type\": \"integer\",\n            \"required\": true,\n            \"mapping\": \"duration\",\n            \"description\": \"时长秒数，2–30（有参考视频 2–15），禁止 -1。\"\n          },\n          {\n            \"name\": \"aspectRatio\",\n            \"type\": \"string\",\n            \"required\": true,\n            \"mapping\": \"aspect_ratio\",\n            \"description\": \"只允许 auto / 16:9 / 9:16 / 1:1，无默认值。\"\n          },\n          {\n            \"name\": \"resolution\",\n            \"type\": \"string\",\n            \"required\": false,\n            \"mapping\": \"resolution\",\n            \"description\": \"仅 720p / 1080p，缺省 720p。\"\n          },\n          {\n            \"name\": \"providerOptions\",\n            \"type\": \"object\",\n            \"required\": false,\n            \"mapping\": \"provider-specific fields\",\n            \"description\": \"插件命名空间内的扩展字段（body/extra_body 整包合并）。\"\n          }\n        ],\n        \"create\": {\n          \"method\": \"POST\",\n          \"path\": \"/v1/videos/generations\",\n          \"contentType\": \"application/json\",\n          \"body\": {\n            \"$merge\": [\n              {\n                \"model\": {\n                  \"$ref\": \"request.model\"\n                },\n                \"prompt\": {\n                  \"$ref\": \"request.prompt\"\n                },\n                \"duration\": {\n                  \"$if\": {\n                    \"condition\": {\n                      \"$gt\": [\n                        {\n                          \"$ref\": \"request.duration\"\n                        },\n                        0\n                      ]\n                    },\n                    \"then\": {\n                      \"$ref\": \"request.duration\"\n                    },\n                    \"else\": 5\n                  }\n                },\n                \"aspect_ratio\": {\n                  \"$switch\": {\n                    \"cases\": [\n                      {\n                        \"when\": {\n                          \"$in\": [\n                            {\n                              \"$lower\": {\n                                \"$trim\": {\n                                  \"$ref\": \"request.aspectRatio\"\n                                }\n                              }\n                            },\n                            [\n                              \"auto\",\n                              \"16:9\",\n                              \"9:16\",\n                              \"1:1\"\n                            ]\n                          ]\n                        },\n                        \"then\": {\n                          \"$lower\": {\n                            \"$trim\": {\n                              \"$ref\": \"request.aspectRatio\"\n                            }\n                          }\n                        }\n                      }\n                    ],\n                    \"default\": \"16:9\"\n                  }\n                },\n                \"resolution\": {\n                  \"$switch\": {\n                    \"cases\": [\n                      {\n                        \"when\": {\n                          \"$in\": [\n                            {\n                              \"$lower\": {\n                                \"$trim\": {\n                                  \"$ref\": \"request.resolution\"\n                                }\n                              }\n                            },\n                            [\n                              \"720p\",\n                              \"1080p\"\n                            ]\n                          ]\n                        },\n                        \"then\": {\n                          \"$lower\": {\n                            \"$trim\": {\n                              \"$ref\": \"request.resolution\"\n                            }\n                          }\n                        }\n                      }\n                    ],\n                    \"default\": \"720p\"\n                  }\n                },\n                \"images\": {\n                  \"$omitEmpty\": {\n                    \"$map\": {\n                      \"from\": {\n                        \"$filter\": {\n                          \"from\": {\n                            \"$ref\": \"request.images\"\n                          },\n                          \"as\": \"media\",\n                          \"where\": {\n                            \"$and\": [\n                              {\n                                \"$ne\": [\n                                  {\n                                    \"$lower\": {\n                                      \"$trim\": {\n                                        \"$ref\": \"media.role\"\n                                      }\n                                    }\n                                  },\n                                  \"first_frame\"\n                                ]\n                              },\n                              {\n                                \"$ne\": [\n                                  {\n                                    \"$lower\": {\n                                      \"$trim\": {\n                                        \"$ref\": \"media.role\"\n                                      }\n                                    }\n                                  },\n                                  \"last_frame\"\n                                ]\n                              },\n                              {\n                                \"$ne\": [\n                                  {\n                                    \"$lower\": {\n                                      \"$trim\": {\n                                        \"$ref\": \"media.role\"\n                                      }\n                                    }\n                                  },\n                                  \"mask\"\n                                ]\n                              }\n                            ]\n                          }\n                        }\n                      },\n                      \"as\": \"media\",\n                      \"in\": {\n                        \"$ref\": \"media.value\"\n                      }\n                    }\n                  }\n                },\n                \"videos\": {\n                  \"$omitEmpty\": {\n                    \"$map\": {\n                      \"from\": {\n                        \"$ref\": \"request.videos\"\n                      },\n                      \"as\": \"media\",\n                      \"in\": {\n                        \"$ref\": \"media.value\"\n                      }\n                    }\n                  }\n                },\n                \"first_frame_image\": {\n                  \"$omitEmpty\": {\n                    \"$first\": {\n                      \"$map\": {\n                        \"from\": {\n                          \"$filter\": {\n                            \"from\": {\n                              \"$ref\": \"request.images\"\n                            },\n                            \"as\": \"media\",\n                            \"where\": {\n                              \"$eq\": [\n                                {\n                                  \"$lower\": {\n                                    \"$trim\": {\n                                      \"$ref\": \"media.role\"\n                                    }\n                                  }\n                                },\n                                \"first_frame\"\n                              ]\n                            }\n                          }\n                        },\n                        \"as\": \"media\",\n                        \"in\": {\n                          \"$ref\": \"media.value\"\n                        }\n                      }\n                    }\n                  }\n                },\n                \"last_frame_image\": {\n                  \"$omitEmpty\": {\n                    \"$first\": {\n                      \"$map\": {\n                        \"from\": {\n                          \"$filter\": {\n                            \"from\": {\n                              \"$ref\": \"request.images\"\n                            },\n                            \"as\": \"media\",\n                            \"where\": {\n                              \"$eq\": [\n                                {\n                                  \"$lower\": {\n                                    \"$trim\": {\n                                      \"$ref\": \"media.role\"\n                                    }\n                                  }\n                                },\n                                \"last_frame\"\n                              ]\n                            }\n                          }\n                        },\n                        \"as\": \"media\",\n                        \"in\": {\n                          \"$ref\": \"media.value\"\n                        }\n                      }\n                    }\n                  }\n                },\n                \"extra\": {\n                  \"aspect_ratio\": {\n                    \"$switch\": {\n                      \"cases\": [\n                        {\n                          \"when\": {\n                            \"$in\": [\n                              {\n                                \"$lower\": {\n                                  \"$trim\": {\n                                    \"$ref\": \"request.aspectRatio\"\n                                  }\n                                }\n                              },\n                              [\n                                \"auto\",\n                                \"16:9\",\n                                \"9:16\",\n                                \"1:1\"\n                              ]\n                            ]\n                          },\n                          \"then\": {\n                            \"$lower\": {\n                              \"$trim\": {\n                                \"$ref\": \"request.aspectRatio\"\n                              }\n                            }\n                          }\n                        }\n                      ],\n                      \"default\": \"16:9\"\n                    }\n                  },\n                  \"resolution\": {\n                    \"$switch\": {\n                      \"cases\": [\n                        {\n                          \"when\": {\n                            \"$in\": [\n                              {\n                                \"$lower\": {\n                                  \"$trim\": {\n                                    \"$ref\": \"request.resolution\"\n                                  }\n                                }\n                              },\n                              [\n                                \"720p\",\n                                \"1080p\"\n                              ]\n                            ]\n                          },\n                          \"then\": {\n                            \"$lower\": {\n                              \"$trim\": {\n                                \"$ref\": \"request.resolution\"\n                              }\n                            }\n                          }\n                        }\n                      ],\n                      \"default\": \"720p\"\n                    }\n                  }\n                }\n              },\n              {\n                \"$coalesce\": [\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-wan.body\"\n                  },\n                  {\n                    \"$ref\": \"request.providerOptions.tudou-video-wan.extra_body\"\n                  },\n                  {}\n                ]\n              }\n            ]\n          }\n        },\n        \"poll\": {\n          \"method\": \"GET\",\n          \"path\": \"/v1/tasks/{{taskId}}\"\n        },\n        \"response\": {\n          \"taskId\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.id\"\n              },\n              {\n                \"$ref\": \"response.data.task_id\"\n              },\n              {\n                \"$ref\": \"response.id\"\n              },\n              {\n                \"$ref\": \"response.task_id\"\n              },\n              {\n                \"$ref\": \"taskId\"\n              }\n            ]\n          },\n          \"status\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.status\"\n              },\n              {\n                \"$ref\": \"response.data.task_status\"\n              },\n              {\n                \"$ref\": \"response.status\"\n              },\n              {\n                \"$ref\": \"response.task_status\"\n              },\n              \"pending\"\n            ]\n          },\n          \"message\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.error.message\"\n              },\n              {\n                \"$ref\": \"response.error.message\"\n              },\n              {\n                \"$ref\": \"response.data.message\"\n              },\n              {\n                \"$ref\": \"response.data.fail_reason\"\n              },\n              {\n                \"$ref\": \"response.message\"\n              },\n              {\n                \"$ref\": \"response.fail_reason\"\n              }\n            ]\n          },\n          \"videos\": {\n            \"$coalesce\": [\n              {\n                \"$ref\": \"response.data.result.video_url\"\n              },\n              {\n                \"$ref\": \"response.data.result.url\"\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.videos\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$map\": {\n                  \"from\": {\n                    \"$ref\": \"response.data.result.outputs\"\n                  },\n                  \"as\": \"item\",\n                  \"in\": {\n                    \"$coalesce\": [\n                      {\n                        \"$first\": {\n                          \"$ref\": \"item.url\"\n                        }\n                      },\n                      {\n                        \"$ref\": \"item.url\"\n                      },\n                      {\n                        \"$ref\": \"item.video_url\"\n                      },\n                      {\n                        \"$ref\": \"item\"\n                      }\n                    ]\n                  }\n                }\n              },\n              {\n                \"$ref\": \"response.data.metadata.url\"\n              },\n              {\n                \"$ref\": \"response.data.metadata.video_url\"\n              }\n            ]\n          },\n          \"errorPaths\": [\n            \"error.code\",\n            \"data.error.code\"\n          ],\n          \"messagePaths\": [\n            \"data.error.message\",\n            \"error.message\",\n            \"message\",\n            \"msg\"\n          ],\n          \"resultEphemeral\": true\n        }\n      }\n    ]\n  },\n  \"documentation\": \"<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>\"\n}\n```\n<!-- BEEFTV_PLUGIN_MANIFEST_END -->\n"
+}

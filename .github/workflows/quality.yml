@@ -1,0 +1,71 @@
+name: Quality checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Core behavior checks run on every change. Formatting stays a local command.
+# Browser coverage lives in director-e2e.yml and runs for web changes or on demand.
+jobs:
+  release-publisher:
+    name: Release publisher checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test immutable publication and activation
+        run: python3 -m unittest discover -s scripts -p 'test_publish_desktop_r2.py'
+
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - name: Build official protocol packages
+        run: sh ../plugin-packages/build-packages.sh
+      - name: Run Go tests
+        run: go test ./...
+
+  web:
+    name: Web checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.9
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Lint retired Ant Design APIs
+        run: bun run lint
+      - name: Typecheck
+        run: bun run typecheck
+      - name: Run tests
+        # Component browser tests use the Playwright version pinned by bun.lock.
+        # Install its matching browser instead of relying on a runner cache.
+        run: |
+          bunx playwright install --with-deps chromium
+          bun run test
