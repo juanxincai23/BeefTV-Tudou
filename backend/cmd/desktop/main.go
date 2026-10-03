@@ -28,6 +28,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	seedDefaultModelConfig(dataDir)
 	app := newDesktopApp(dataDir)
 	startupErrorPath := filepath.Join(dataDir, "startup-error.log")
 	if err := prepareDesktopApp(app); err != nil {
