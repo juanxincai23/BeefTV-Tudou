@@ -70,3 +70,44 @@ test("BeefAPI generic newapi Seedance accepts mixed image and video references w
         videoSeconds: "5",
     }), "");
 });
+
+test("tudou video seedance family follows the gateway model tiers", () => {
+    const profileFor = (model: string) =>
+        modelCapabilityConfigFor(
+            {
+                channels: [{
+                    id: "tudou",
+                    models: [model],
+                    modelProfiles: [{ model, capability: "video", protocol: "tudou-video-seedance" }],
+                }],
+            } as AiConfig,
+            `tudou::${model}`,
+        ).video!;
+
+    // Seedance 2.0：3–15 秒，仅 720p，9 图 / 3 视频 / 3 音频。
+    const seedance20 = profileFor("seedance-2.0");
+    assert.deepEqual(seedance20.duration, { selection: "range", min: 3, max: 15, step: 1, default: 4 });
+    assert.deepEqual(seedance20.resolutions, ["720p"]);
+    assert.equal(seedance20.references.maxImages, 9);
+    assert.equal(seedance20.references.maxVideos, 3);
+    assert.equal(seedance20.references.maxAudios, 3);
+
+    // Seedance 2.5：4–30 秒，仅 720p，30 图 / 10 视频 / 10 音频。
+    const seedance25 = profileFor("seedance-2.5");
+    assert.deepEqual(seedance25.duration, { selection: "range", min: 4, max: 30, step: 1, default: 10 });
+    assert.deepEqual(seedance25.resolutions, ["720p"]);
+    assert.equal(seedance25.references.maxImages, 30);
+    assert.equal(seedance25.references.maxVideos, 10);
+    assert.equal(seedance25.references.maxAudios, 10);
+
+    // MiniMax H3：3–15 秒，720p/1080p/2k，9 图 / 3 视频 / 3 音频，无 generate_audio 开关。
+    const minimax = profileFor("minimax-h3");
+    assert.deepEqual(minimax.duration, { selection: "range", min: 3, max: 15, step: 1, default: 4 });
+    assert.deepEqual(minimax.resolutions, ["720p", "1080p", "2k"]);
+    assert.equal(minimax.defaultResolution, "720p");
+    assert.deepEqual(minimax.ratios, ["16:9", "9:16"]);
+    assert.equal(minimax.references.maxImages, 9);
+    assert.equal(minimax.references.maxVideos, 3);
+    assert.equal(minimax.references.maxAudios, 3);
+    assert.equal(minimax.generateAudio.supported, false);
+});

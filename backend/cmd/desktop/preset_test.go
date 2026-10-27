@@ -43,8 +43,8 @@ func TestSeedDefaultModelConfigWritesPresetWhenAbsent(t *testing.T) {
 	if channel.APIKey != "" {
 		t.Fatalf("预设不得携带密钥, got %q", channel.APIKey)
 	}
-	if len(channel.Models) != 11 {
-		t.Fatalf("模型数 = %d, want 11", len(channel.Models))
+	if len(channel.Models) != 14 {
+		t.Fatalf("模型数 = %d, want 14", len(channel.Models))
 	}
 }
 

@@ -607,16 +607,32 @@ export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = "
             video.resolutions = ["720p", "1080p"];
         }
         if (protocol === "tudou-video-seedance") {
-            if (lowerModel.includes("2.5")) {
-                video.duration = { selection: "range", min: 4, max: 30, step: 1, default: 10 };
-                video.references.maxImages = 30;
+            // 土豆 seedance 系与 minimax-h3 系共用同一请求形状；档位按网关文档在能力层收敛。
+            if (lowerModel.includes("minimax")) {
+                video.duration = { selection: "range", min: 3, max: 15, step: 1, default: 4 };
+                video.resolutions = ["720p", "1080p", "2k"];
+                video.references.maxImages = 9;
+                video.references.maxVideos = 3;
+                video.references.maxAudios = 3;
+                video.generateAudio = { supported: false, default: false };
             } else {
-                video.duration = { selection: "range", min: 4, max: 15, step: 1, default: 4 };
+                if (lowerModel.includes("2.5")) {
+                    video.duration = { selection: "range", min: 4, max: 30, step: 1, default: 10 };
+                    video.references.maxImages = 30;
+                    video.references.maxVideos = 10;
+                    video.references.maxAudios = 10;
+                } else if (lowerModel.includes("2.0")) {
+                    video.duration = { selection: "range", min: 3, max: 15, step: 1, default: 4 };
+                    video.references.maxVideos = 3;
+                    video.references.maxAudios = 3;
+                } else {
+                    video.duration = { selection: "range", min: 4, max: 15, step: 1, default: 4 };
+                    video.references.maxVideos = 3;
+                    video.references.maxAudios = 3;
+                }
+                video.resolutions = lowerModel.includes("2.0") || lowerModel.includes("2.5") || lowerModel.includes("face") ? ["720p"] : ["720p", "1080p"];
+                video.generateAudio = { supported: true, default: false };
             }
-            video.resolutions = lowerModel.includes("face") ? ["720p"] : ["720p", "1080p"];
-            video.references.maxVideos = 3;
-            video.references.maxAudios = 3;
-            video.generateAudio = { supported: true, default: false };
         }
         if (protocol === "tudou-video-grok") {
             video.duration = { selection: "enum", values: [6, 10, 15], default: 6 };
