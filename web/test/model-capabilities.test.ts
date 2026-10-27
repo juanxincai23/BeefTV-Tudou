@@ -100,8 +100,19 @@ test("tudou video seedance family follows the gateway model tiers", () => {
     assert.equal(seedance25.references.maxVideos, 10);
     assert.equal(seedance25.references.maxAudios, 10);
 
-    // MiniMax H3：3–15 秒，720p/1080p/2k，9 图 / 3 视频 / 3 音频，无 generate_audio 开关。
-    const minimax = profileFor("minimax-h3");
+    // MiniMax H3（独立协议）：3–15 秒，720p/1080p/2k，9 图 / 3 视频 / 3 音频，无 generate_audio 开关。
+    const minimaxFor = (model: string, protocol: string) =>
+        modelCapabilityConfigFor(
+            {
+                channels: [{
+                    id: "tudou",
+                    models: [model],
+                    modelProfiles: [{ model, capability: "video", protocol }],
+                }],
+            } as AiConfig,
+            `tudou::${model}`,
+        ).video!;
+    const minimax = minimaxFor("minimax-h3", "tudou-video-minimax");
     assert.deepEqual(minimax.duration, { selection: "range", min: 3, max: 15, step: 1, default: 4 });
     assert.deepEqual(minimax.resolutions, ["720p", "1080p", "2k"]);
     assert.equal(minimax.defaultResolution, "720p");
@@ -110,4 +121,9 @@ test("tudou video seedance family follows the gateway model tiers", () => {
     assert.equal(minimax.references.maxVideos, 3);
     assert.equal(minimax.references.maxAudios, 3);
     assert.equal(minimax.generateAudio.supported, false);
+
+    // 旧配置把 minimax-h3 挂在 seedance 协议下时，档位保持一致。
+    const legacyMinimax = minimaxFor("minimax-h3", "tudou-video-seedance");
+    assert.deepEqual(legacyMinimax.duration, minimax.duration);
+    assert.deepEqual(legacyMinimax.resolutions, minimax.resolutions);
 });

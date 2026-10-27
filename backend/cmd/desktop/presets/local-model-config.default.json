@@ -607,7 +607,7 @@
           {
             "capability": "video",
             "model": "minimax-h3",
-            "protocol": "tudou-video-seedance"
+            "protocol": "tudou-video-minimax"
           },
           {
             "capability": "video",
